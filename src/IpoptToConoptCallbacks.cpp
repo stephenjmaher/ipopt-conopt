@@ -92,12 +92,40 @@ int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[]
       }
 
       // Populate Jacobian structure (using split Jacobian)
+      // Convert from (iRow, jCol) pairs to CONOPT's sparse format
+      // COLSTA[i] = starting index in ROWNO for column i
+      // ROWNO[k] = row index for the k-th non-zero element
+
+      // Count non-zeros per column
+      std::vector<Ipopt::Index> col_counts(NUMVAR, 0);
       for (Ipopt::Index k = 0; k < NUMNZ; ++k) {
-         ROWNO[k] = problem_info->jac_g_iRow_split[k];
-         COLSTA[k] = problem_info->jac_g_jCol_split[k];
-         VALUE[k] = 0.0; // Values will be computed by FDEval
-         NLFLAG[k] = (problem_info->has_constraint_linearity &&
-                      problem_info->const_linearity_split[problem_info->jac_g_iRow_split[k]] == Ipopt::NONLINEAR) ? 1 : 0;
+         Ipopt::Index col = problem_info->jac_g_jCol_split[k];
+         if (col >= 0 && col < NUMVAR) {
+            col_counts[col]++;
+         }
+      }
+
+      // Set COLSTA as cumulative counts (starting indices)
+      Ipopt::Index current_pos = 0;
+      for (Ipopt::Index j = 0; j < NUMVAR; ++j) {
+         COLSTA[j] = current_pos;
+         current_pos += col_counts[j];
+      }
+
+      // Fill ROWNO array with row indices, maintaining column order
+      std::vector<Ipopt::Index> col_positions(NUMVAR, 0);
+      for (Ipopt::Index k = 0; k < NUMNZ; ++k) {
+         Ipopt::Index row = problem_info->jac_g_iRow_split[k];
+         Ipopt::Index col = problem_info->jac_g_jCol_split[k];
+
+         if (col >= 0 && col < NUMVAR && row >= 0 && row < NUMCON) {
+            Ipopt::Index pos = COLSTA[col] + col_positions[col];
+            ROWNO[pos] = row;
+            VALUE[pos] = 0.0; // Values will be computed by FDEval
+            NLFLAG[pos] = (problem_info->has_constraint_linearity &&
+                          problem_info->const_linearity_split[row] == Ipopt::NONLINEAR) ? 1 : 0;
+            col_positions[col]++;
+         }
       }
 
       if (jnlst) {
