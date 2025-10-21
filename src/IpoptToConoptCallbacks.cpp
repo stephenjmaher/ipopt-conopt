@@ -38,7 +38,7 @@ static inline Ipopt::IpoptProblemInfo* GetProblemInfo(void *USRMEM) {
 // This trampoline might need to cache info from previous calls or might not be needed
 // if CONOPT can get the matrix structure differently. For now, let's assume it
 // needs to be implemented based on cached data or default values.
-int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[], int VSTA[], int TYPEX[],
+int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[], int VSTA[], int TYPE[],
    double RHS[], int ESTA[], int COLSTA[], int ROWNO[], double VALUE[], int NLFLAG[], int NUMVAR, int NUMCON,
    int NUMNZ, void *USRMEM)
 {
@@ -82,8 +82,13 @@ int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[]
 
       // Populate constraint RHS values (using split constraints)
       for (Ipopt::Index i = 0; i < NUMCON; ++i) {
+         TYPE[i] = int(problem_info->g_type[i]);
          RHS[i] = problem_info->g_rhs[i];
-         ESTA[i] = 0; // Constraint status - CONOPT will set this
+
+         // the equation status is not being given at this stage, since this requires the functions to be evaluated
+         // first.
+         // TODO: consider whether this is necessary.
+         //ESTA[i] = 0;
       }
 
       // Populate Jacobian structure (using split Jacobian)

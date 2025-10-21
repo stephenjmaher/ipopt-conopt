@@ -29,6 +29,19 @@ namespace Ipopt {
     };
 
     /**
+     * @brief Enumeration for the constraint types.
+     *
+     * NOTE: the RANGE type is not used by CONOPT. This is used to help process the constraints from Ipopt.
+     */
+    enum ConoptConstraintType {
+        EQUAL = 0,
+        GREATEREQ = 1,
+        LESSEQ = 2,
+        FREE = 3,
+        RANGE = 4
+    };
+
+    /**
      * @brief Struct to hold all problem information retrieved from TNLP
      * This information is gathered before solving and used by CONOPT callbacks
      */
@@ -59,9 +72,9 @@ namespace Ipopt {
         // === Split Constraint Information (for CONOPT) ===
         Index m_split;                     // Number of constraints after splitting
         std::vector<Number> g_rhs;         // RHS values for split constraints (length m_split)
+        std::vector<Number> g_type;        // the constraint type for Conopt
         std::vector<LinearityType> const_linearity_split; // Linearity for split constraints (length m_split)
         std::vector<Index> original_constraint_map; // Maps split constraint index to original constraint index (length m_split)
-        std::vector<bool> is_negated;      // Whether split constraint is negated (length m_split)
 
         // === Jacobian Structure ===
         std::vector<Index> jac_g_iRow;     // Jacobian row indices (length nnz_jac_g)
@@ -125,6 +138,31 @@ namespace Ipopt {
         }
 
         /**
+         * @brief utility method for getting the constraint type.
+         */
+        ConoptConstraintType constraint_type(int orig_row) {
+            ConoptConstraintType type;
+            bool has_lower = IsFiniteNumber(g_l[orig_row]);
+            bool has_upper = IsFiniteNumber(g_u[orig_row]);
+
+            if (has_lower && has_upper) {
+                if (g_l[orig_row] == g_u[orig_row])
+                    type = ConoptConstraintType::EQUAL;
+                else
+                    type = ConoptConstraintType::RANGE;
+            }
+            else if (has_upper)
+                type = ConoptConstraintType::LESSEQ;
+            else if (has_lower)
+                type = ConoptConstraintType::GREATEREQ;
+            else
+                type = ConoptConstraintType::FREE;
+
+            return type;
+        }
+
+
+        /**
          * @brief Split constraints that have both lower and upper bounds
          * This method processes the original constraints and creates split constraints
          * for CONOPT, where constraints with both bounds are duplicated and negated.
@@ -134,70 +172,81 @@ namespace Ipopt {
             m_split = 0;
             nnz_jac_g_split = 0;
             g_rhs.clear();
+            g_type.clear();
             const_linearity_split.clear();
             original_constraint_map.clear();
-            is_negated.clear();
             jac_g_iRow_split.clear();
             jac_g_jCol_split.clear();
             jac_g_values_split.clear();
 
             // Count how many constraints we'll have after splitting
             for (Index i = 0; i < m; ++i) {
-                bool has_lower = IsFiniteNumber(g_l[i]);
-                bool has_upper = IsFiniteNumber(g_u[i]);
-
-                if (has_lower && has_upper) {
+                ConoptConstraintType type = constraint_type(i);
+                if (type == ConoptConstraintType::RANGE) {
                     // Both bounds: need two constraints
                     m_split += 2;
-                } else if (has_lower || has_upper) {
-                    // Only one bound: need one constraint
+                } else {
+                    // Single constraint: equality, lower bound only, upper bound only, or free
                     m_split += 1;
                 }
-                // No bounds: skip constraint (shouldn't happen in practice)
             }
 
             // Resize split constraint vectors
             g_rhs.resize(m_split);
+            g_type.resize(m_split);
             const_linearity_split.resize(m_split);
             original_constraint_map.resize(m_split);
-            is_negated.resize(m_split);
 
             // Process each original constraint
             Index split_idx = 0;
             for (Index i = 0; i < m; ++i) {
-                bool has_lower = IsFiniteNumber(g_l[i]);
-                bool has_upper = IsFiniteNumber(g_u[i]);
+                ConoptConstraintType type = constraint_type(i);
 
-                if (has_lower && has_upper) {
+                if (type == ConoptConstraintType::EQUAL) {
+                    g_rhs[split_idx] = g_l[i];
+                    g_type[split_idx] = ConoptConstraintType::EQUAL;
+                    const_linearity_split[split_idx] = const_linearity[i];
+                    original_constraint_map[split_idx] = i;
+                    split_idx++;
+                }
+                else if (type == ConoptConstraintType::RANGE) {
                     // Both bounds: create two constraints
-                    // First constraint: -g(x) <= -g_l (negated)
-                    g_rhs[split_idx] = -g_l[i];
+                    // First constraint: g(x) >= g_l
+                    g_rhs[split_idx] = g_l[i];
+                    g_type[split_idx] = ConoptConstraintType::GREATEREQ;
                     const_linearity_split[split_idx] = const_linearity[i];
                     original_constraint_map[split_idx] = i;
-                    is_negated[split_idx] = true;
                     split_idx++;
 
-                    // Second constraint: g(x) <= g_u (not negated)
+                    // Second constraint: g(x) <= g_u
                     g_rhs[split_idx] = g_u[i];
+                    g_type[split_idx] = ConoptConstraintType::LESSEQ;
                     const_linearity_split[split_idx] = const_linearity[i];
                     original_constraint_map[split_idx] = i;
-                    is_negated[split_idx] = false;
                     split_idx++;
-
-                } else if (has_lower) {
-                    // Only lower bound: g(x) >= g_l becomes -g(x) <= -g_l
-                    g_rhs[split_idx] = -g_l[i];
+                }
+                else if (type == ConoptConstraintType::GREATEREQ) {
+                    // Only lower bound: g(x) >= g_l
+                    g_rhs[split_idx] = g_l[i];
+                    g_type[split_idx] = ConoptConstraintType::GREATEREQ;
                     const_linearity_split[split_idx] = const_linearity[i];
                     original_constraint_map[split_idx] = i;
-                    is_negated[split_idx] = true;
                     split_idx++;
-
-                } else if (has_upper) {
+                }
+                else if (type == ConoptConstraintType::LESSEQ) {
                     // Only upper bound: g(x) <= g_u
                     g_rhs[split_idx] = g_u[i];
+                    g_type[split_idx] = ConoptConstraintType::LESSEQ;
                     const_linearity_split[split_idx] = const_linearity[i];
                     original_constraint_map[split_idx] = i;
-                    is_negated[split_idx] = false;
+                    split_idx++;
+                }
+                else if (type == ConoptConstraintType::FREE) {
+                    // Free constraint: no bounds
+                    g_rhs[split_idx] = 0.0; // RHS doesn't matter for free constraints
+                    g_type[split_idx] = ConoptConstraintType::FREE;
+                    const_linearity_split[split_idx] = const_linearity[i];
+                    original_constraint_map[split_idx] = i;
                     split_idx++;
                 }
             }
@@ -218,14 +267,13 @@ namespace Ipopt {
             // Count non-zeros for split Jacobian
             for (Index k = 0; k < nnz_jac_g; ++k) {
                 Index orig_row = jac_g_iRow[k];
-                bool has_lower = IsFiniteNumber(g_l[orig_row]);
-                bool has_upper = IsFiniteNumber(g_u[orig_row]);
+                ConoptConstraintType type = constraint_type(orig_row);
 
-                if (has_lower && has_upper) {
+                if (type == ConoptConstraintType::RANGE) {
                     // Both bounds: this entry appears in both split constraints
                     nnz_jac_g_split += 2;
-                } else if (has_lower || has_upper) {
-                    // Only one bound: this entry appears once
+                } else if (type != ConoptConstraintType::FREE) {
+                    // All other types: this entry appears once
                     nnz_jac_g_split += 1;
                 }
             }
@@ -240,54 +288,39 @@ namespace Ipopt {
             for (Index k = 0; k < nnz_jac_g; ++k) {
                 Index orig_row = jac_g_iRow[k];
                 Index col = jac_g_jCol[k];
-                bool has_lower = IsFiniteNumber(g_l[orig_row]);
-                bool has_upper = IsFiniteNumber(g_u[orig_row]);
+                ConoptConstraintType type = constraint_type(orig_row);
 
-                if (has_lower && has_upper) {
+                if (type == ConoptConstraintType::RANGE) {
                     // Both bounds: create two entries
                     // Find the split constraint indices for this original constraint
                     Index split_row_lower = -1, split_row_upper = -1;
                     for (Index s = 0; s < m_split; ++s) {
                         if (original_constraint_map[s] == orig_row) {
-                            if (is_negated[s]) {
+                            if (g_type[s] == ConoptConstraintType::GREATEREQ) {
                                 split_row_lower = s;
-                            } else {
+                            } else if (g_type[s] == ConoptConstraintType::LESSEQ) {
                                 split_row_upper = s;
                             }
                         }
                     }
 
-                    // Lower bound constraint (negated)
+                    // Lower bound constraint
                     jac_g_iRow_split[split_k] = split_row_lower;
                     jac_g_jCol_split[split_k] = col;
                     jac_g_values_split[split_k] = 0.0; // Will be set during evaluation
                     split_k++;
 
-                    // Upper bound constraint (not negated)
+                    // Upper bound constraint
                     jac_g_iRow_split[split_k] = split_row_upper;
                     jac_g_jCol_split[split_k] = col;
                     jac_g_values_split[split_k] = 0.0; // Will be set during evaluation
                     split_k++;
 
-                } else if (has_lower) {
-                    // Only lower bound: find the negated split constraint
+                } else if (type != ConoptConstraintType::FREE) {
+                    // All other types: find the corresponding split constraint
                     Index split_row = -1;
                     for (Index s = 0; s < m_split; ++s) {
-                        if (original_constraint_map[s] == orig_row && is_negated[s]) {
-                            split_row = s;
-                            break;
-                        }
-                    }
-                    jac_g_iRow_split[split_k] = split_row;
-                    jac_g_jCol_split[split_k] = col;
-                    jac_g_values_split[split_k] = 0.0; // Will be set during evaluation
-                    split_k++;
-
-                } else if (has_upper) {
-                    // Only upper bound: find the non-negated split constraint
-                    Index split_row = -1;
-                    for (Index s = 0; s < m_split; ++s) {
-                        if (original_constraint_map[s] == orig_row && !is_negated[s]) {
+                        if (original_constraint_map[s] == orig_row) {
                             split_row = s;
                             break;
                         }
@@ -342,9 +375,9 @@ namespace Ipopt {
 
             // Clear split constraint data
             g_rhs.clear();
+            g_type.clear();
             const_linearity_split.clear();
             original_constraint_map.clear();
-            is_negated.clear();
             jac_g_iRow_split.clear();
             jac_g_jCol_split.clear();
             jac_g_values_split.clear();
