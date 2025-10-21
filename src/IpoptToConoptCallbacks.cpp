@@ -122,8 +122,8 @@ int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[]
             Ipopt::Index pos = COLSTA[col] + col_positions[col];
             ROWNO[pos] = row;
             VALUE[pos] = 0.0; // Values will be computed by FDEval
-            NLFLAG[pos] = (problem_info->has_constraint_linearity &&
-                          problem_info->const_linearity_split[row] == Ipopt::NONLINEAR) ? 1 : 0;
+            NLFLAG[pos] = 1; // the NLFLAG is set to 1 for all values because Ipopt evaluates all expressions, even
+                             // linear expressions.
             col_positions[col]++;
          }
       }
