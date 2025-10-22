@@ -241,6 +241,9 @@ namespace Ipopt {
          context_.stats_ = stats_.get();
          context_.problem_info_ = &problem_info_; // Add problem info to context
 
+         // --- Initialize FDEval cache ---
+         context_.fdeval_cache_ = new FDEvalCache(problem_info_.m_split);
+
          COIDEF_UsrMem(cntvect_, &context_);
 
          // --- Register all our trampolines ---
@@ -270,6 +273,12 @@ namespace Ipopt {
 
          // --- Solve the problem ---
          COI_Solve(cntvect_);
+
+         // --- Cleanup FDEval cache ---
+         if (context_.fdeval_cache_) {
+            delete context_.fdeval_cache_;
+            context_.fdeval_cache_ = nullptr;
+         }
 
          // ... (Get status from Conopt_Solution or Conopt_Status callbacks) ...
          // ... (Populate our stats_ object) ...

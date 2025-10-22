@@ -31,6 +31,48 @@ static inline Ipopt::IpoptProblemInfo* GetProblemInfo(void *USRMEM) {
     return GetContext(USRMEM)->problem_info_;
 }
 
+// Cleanup function for context
+void CleanupIpoptConoptContext(IpoptConoptContext* context) {
+    if (context && context->fdeval_cache_) {
+        delete context->fdeval_cache_;
+        context->fdeval_cache_ = nullptr;
+    }
+}
+
+// Helper function to get cached constraint value
+bool GetCachedConstraintValue(IpoptConoptContext* context, int row_idx, double& value) {
+    if (!context || !context->fdeval_cache_) {
+        return false;
+    }
+
+    FDEvalCache* cache = context->fdeval_cache_;
+    if (row_idx < 0 || row_idx >= cache->num_constraints_) {
+        return false;
+    }
+
+    if (cache->constraint_valid_[row_idx]) {
+        value = cache->constraint_values_[row_idx];
+        return true;
+    }
+
+    return false;
+}
+
+// Helper function to get cached objective value
+bool GetCachedObjectiveValue(IpoptConoptContext* context, double& value) {
+    if (!context || !context->fdeval_cache_) {
+        return false;
+    }
+
+    FDEvalCache* cache = context->fdeval_cache_;
+    if (cache->objective_valid_) {
+        value = cache->objective_value_;
+        return true;
+    }
+
+    return false;
+}
+
 // --- Implementation of the Trampolines ---
 
 // Note: Conopt_ReadMatrix is tricky because Ipopt doesn't have a direct equivalent.
@@ -161,13 +203,13 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
 
    // --- Adjust ROWNO based on Base ---
    // CONOPT doc mentions Base determines if ROWNO is 0/1 based. Ipopt is always C-style (0-based).
-   // Assuming CONOPT uses 0-based if C_STYLE was requested.
+   // We assume CONOPT uses 0-based indexing (C_STYLE).
    // The objective function is now the last row in the constraint matrix.
-   bool is_objective = (ROWNO == problem_info->objective_row_index + 1); // CONOPT is 1-based
+   bool is_objective = (ROWNO == problem_info->objective_row_index); // CONOPT is 0-based
    Ipopt::Index conopt_constraint_idx = -1;
    Ipopt::Index ipopt_constraint_idx = -1;
    if (!is_objective) {
-      conopt_constraint_idx = ROWNO - 1; // Assuming constraints are 1-based from CONOPT
+      conopt_constraint_idx = ROWNO; // CONOPT uses 0-based indexing
       if (conopt_constraint_idx < 0 || conopt_constraint_idx >= problem_info->m_split) {
          if (jnlst) jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN, "CONOPT Shim Error: Invalid ROWNO %d received from CONOPT.\n", ROWNO);
          if (ERRCNT) (*ERRCNT)++;
@@ -189,38 +231,44 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
       // --- Evaluate Function Value (MODE 1 or 3) ---
       if (MODE & 1) {
          if (is_objective) {
-            Ipopt::Number obj_value;
-            if (!tnlp->eval_f(problem_info->n, X, new_x, obj_value)) {
-               evaluation_errors++;
-               if (jnlst) jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP, "CONOPT Shim: User's eval_f failed.\n");
+            // Check for cached objective value first
+            double cached_obj_value;
+            if (GetCachedObjectiveValue(context, cached_obj_value)) {
+               *G = cached_obj_value;
+               if (jnlst) {
+                  jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
+                               "CONOPT Shim: Using cached objective value.\n");
+               }
             } else {
-               *G = obj_value;
+               // This is an error - FDEval should only be called for objective if it was in ROWLIST
+               if (jnlst) {
+                  jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                               "CONOPT Shim Error: No cached value for objective. "
+                               "Objective was not in the ROWLIST from FDEvalIni.\n");
+               }
+               evaluation_errors++;
+               if (ERRCNT) (*ERRCNT)++;
+               return 0; // Return success but with error count
             }
          } else { // It's a constraint
-            // Need temporary storage for *all* original constraints
-            std::vector<Ipopt::Number> all_g(problem_info->m);
-            if (!tnlp->eval_g(problem_info->n, X, new_x, problem_info->m, all_g.data())) {
-               evaluation_errors++;
-               if (jnlst) jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP, "CONOPT Shim: User's eval_g failed for row %d.\n", ROWNO);
-            } else {
-               // Get the original constraint value
-               Ipopt::Number constraint_value = all_g[ipopt_constraint_idx];
-
-               // Apply constraint splitting logic if needed
-               // For range constraints, we need to check which split constraint this is
-               Ipopt::ConoptConstraintType split_type = problem_info->get_split_constraint_type(conopt_constraint_idx);
-               if (split_type == Ipopt::ConoptConstraintType::GREATEREQ) {
-                  // This is the lower bound constraint: g(x) >= g_l
-                  // The value should be g(x) - g_l, but CONOPT expects g(x)
-                  *G = constraint_value;
-               } else if (split_type == Ipopt::ConoptConstraintType::LESSEQ) {
-                  // This is the upper bound constraint: g(x) <= g_u
-                  // The value should be g_u - g(x), but CONOPT expects g(x)
-                  *G = constraint_value;
-               } else {
-                  // For equality, single bound, or free constraints, use the value directly
-                  *G = constraint_value;
+            // Check for cached constraint value first
+            double cached_constraint_value;
+            if (GetCachedConstraintValue(context, conopt_constraint_idx, cached_constraint_value)) {
+               *G = cached_constraint_value;
+               if (jnlst) {
+                  jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
+                               "CONOPT Shim: Using cached constraint value for row %d.\n", ROWNO);
                }
+            } else {
+               // This is an error - FDEval should only be called for rows that were in ROWLIST
+               if (jnlst) {
+                  jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                               "CONOPT Shim Error: No cached value for constraint row %d. "
+                               "This row was not in the ROWLIST from FDEvalIni.\n", ROWNO);
+               }
+               evaluation_errors++;
+               if (ERRCNT) (*ERRCNT)++;
+               return 0; // Return success but with error count
             }
          }
       }
@@ -300,23 +348,181 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
 }
 
 
+/**
+ * @brief CONOPT FDEvalIni callback - Function and Derivative Evaluator Initialization
+ *
+ * This optional callback is called each time the point of interest has changed,
+ * and it defines the coming point and tells which constraints CONOPT will need
+ * during the following calls to FDEval. This implementation caches constraint
+ * and objective values for the rows in ROWLIST to optimize subsequent FDEval calls.
+ *
+ * @param X Vector with the point of evaluation for future FDEval calls
+ * @param ROWLIST List of constraints that will be evaluated in future FDEval calls
+ * @param MODE Mode of evaluation (1=function, 2=derivatives, 3=both)
+ * @param LISTSIZE Number of elements in ROWLIST
+ * @param NUMTHREAD Number of threads that will be used for following FDEval calls
+ * @param IGNERR Whether CONOPT assumes the point to be safe (0) or potentially unsafe (1)
+ * @param ERRCNT Function evaluation error counter
+ * @param NUMVAR Number of variables
+ * @param USRMEM User memory pointer containing IpoptConoptContext
+ * @return 0 on success, 1 on critical error
+ */
 int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MODE, int LISTSIZE, int NUMTHREAD,
    int IGNERR, int *ERRCNT, int NUMVAR, void *USRMEM)
 {
+   assert(LISTSIZE > 0);
+   IpoptConoptContext* context = GetContext(USRMEM);
    Ipopt::TNLP* tnlp = GetTNLP(USRMEM);
-   // Ipopt's TNLP doesn't have direct equivalents for FDEvalIni/End.
-   // These might be for CONOPT's internal setup/teardown for parallel evaluations.
-   // We might not need to call anything on the TNLP object here.
-   // Consult CONOPT docs for what this callback is expected to do.
-   return 0; // Indicate success
+   Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
+   Ipopt::IpoptProblemInfo* problem_info = GetProblemInfo(USRMEM);
+
+   if (!tnlp || !problem_info) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                      "CONOPT Shim Error: TNLP or ProblemInfo object is NULL in FDEvalIni.\n");
+      }
+      return 1; // Critical error
+   }
+
+   // Only process if MODE is 1 or 3 (function evaluation needed)
+   if (!(MODE & 1)) {
+      // MODE 2 only - no function evaluation needed, just return success
+      return 0;
+   }
+
+   // Get the cache (should already be initialized in OptimizeTNLP)
+   if (!context->fdeval_cache_) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                      "CONOPT Shim Error: FDEvalCache not initialized in FDEvalIni.\n");
+      }
+      return 1; // Critical error
+   }
+
+   FDEvalCache* cache = context->fdeval_cache_;
+
+   // Reset validity flags for all constraints
+   cache->invalidateAll();
+
+   try {
+      // first checking if the objective is the only row needing evaluation. It is determined later if the objective
+      // needs to be evaluated.
+      bool has_constraints = true;
+      bool has_objective = false;
+      if (LISTSIZE == 1 && ROWLIST[0] == problem_info->objective_row_index)
+      {
+         has_constraints = false;
+         has_objective = true;
+      }
+
+      if (has_constraints) {
+         // Evaluate all original constraints
+         std::vector<Ipopt::Number> all_g(problem_info->m);
+         if (!tnlp->eval_g(problem_info->n, X, true, problem_info->m, all_g.data())) {
+            if (jnlst) {
+               jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP,
+                            "CONOPT Shim: eval_g failed in FDEvalIni.\n");
+            }
+            if (ERRCNT) (*ERRCNT)++;
+            return 0; // Non-critical error, continue
+         }
+
+         // Store constraint values for rows in ROWLIST
+         for (int i = 0; i < LISTSIZE; ++i) {
+            int row_idx = ROWLIST[i];
+            if (row_idx == problem_info->objective_row_index) {
+               // Skip objective for now, will handle separately. Marking that the objective needs evaluation.
+               has_objective = true;
+               continue;
+            } else if (row_idx >= 0 && row_idx < problem_info->m_split) {
+               // Map CONOPT constraint index to Ipopt constraint index
+               Ipopt::Index ipopt_constraint_idx = problem_info->original_constraint_map[row_idx];
+               if (ipopt_constraint_idx >= 0 && ipopt_constraint_idx < problem_info->m) {
+                  cache->constraint_values_[row_idx] = all_g[ipopt_constraint_idx];
+                  cache->constraint_valid_[row_idx] = true;
+               }
+            }
+         }
+      }
+
+      // Evaluate objective if it's in the ROWLIST
+      if (has_objective) {
+         Ipopt::Number obj_value;
+         if (!tnlp->eval_f(problem_info->n, X, true, obj_value)) {
+            if (jnlst) {
+               jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP,
+                            "CONOPT Shim: eval_f failed in FDEvalIni.\n");
+            }
+            if (ERRCNT) (*ERRCNT)++;
+            return 0; // Non-critical error, continue
+         }
+         cache->objective_value_ = obj_value;
+         cache->objective_valid_ = true;
+      }
+
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_NLP,
+                      "CONOPT Shim: FDEvalIni cached %d constraint values%s.\n",
+                      LISTSIZE, has_objective ? " and objective" : "");
+      }
+
+   } catch (const std::exception& e) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
+                      "CONOPT Shim: Exception in FDEvalIni: %s\n", e.what());
+      }
+      if (ERRCNT) (*ERRCNT)++;
+      return 0; // Non-critical error, continue
+   } catch (...) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
+                      "CONOPT Shim: Unknown exception in FDEvalIni.\n");
+      }
+      if (ERRCNT) (*ERRCNT)++;
+      return 0; // Non-critical error, continue
+   }
+
+   return 0; // Success
 }
 
 
+/**
+ * @brief CONOPT FDEvalEnd callback - Function and Derivative Evaluator Termination
+ *
+ * This optional callback is called at the end of the function evaluation stage.
+ * This implementation cleans up any cached data generated in FDEvalIni that was
+ * used to improve the efficiency of function and derivative evaluation.
+ *
+ * @param IGNERR Whether CONOPT assumes the point to be safe (0) or potentially unsafe (1)
+ * @param ERRCNT Function evaluation error counter
+ * @param USRMEM User memory pointer containing IpoptConoptContext
+ * @return 0 on success, 1 on critical error
+ */
 int COI_CALLCONV Conopt_FDEvalEnd(int IGNERR, int *ERRCNT, void *USRMEM)
 {
-   Ipopt::TNLP* tnlp = GetTNLP(USRMEM);
-   // See comment in Conopt_FDEvalIni.
-   return 0; // Indicate success
+   IpoptConoptContext* context = GetContext(USRMEM);
+   Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
+
+   if (!context) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                      "CONOPT Shim Error: Context is NULL in FDEvalEnd.\n");
+      }
+      return 1; // Critical error
+   }
+
+   // Clean up the FDEval cache if it exists
+   if (context->fdeval_cache_) {
+      // Mark all constraint values as invalid
+      context->fdeval_cache_->invalidateAll();
+
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_NLP,
+                      "CONOPT Shim: FDEvalEnd invalidated cached values.\n");
+      }
+   }
+
+   return 0; // Success
 }
 
 int COI_CALLCONV Conopt_Status(int MODSTA, int SOLSTA, int ITER, double OBJVAL, void *USRMEM)

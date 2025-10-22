@@ -6,6 +6,7 @@
 #define IPOPT_TO_CONOPT_CALLBACKS_HPP
 
 #include "conopt.h" // For COI_CALLCONV and C-API types
+#include <vector>
 
 // Forward declare Ipopt classes needed by the struct
 namespace Ipopt {
@@ -16,6 +17,38 @@ namespace Ipopt {
 }
 
 /**
+ * @brief Struct to hold cached constraint values for FDEvalIni optimization.
+ * This stores the results of constraint evaluations with constant lookup time.
+ */
+struct FDEvalCache {
+   std::vector<double> constraint_values_;  // Cached constraint values (size = numcons)
+   std::vector<bool> constraint_valid_;     // Validity flags for each constraint (size = numcons)
+   double objective_value_;                // Cached objective value
+   bool objective_valid_;                  // Whether objective value is valid
+   int num_constraints_;                   // Number of constraints (for bounds checking)
+
+   /**
+    * @brief Constructor for FDEvalCache
+    * @param num_constraints Number of constraints to allocate space for
+    */
+   FDEvalCache(int num_constraints)
+      : num_constraints_(num_constraints),
+        objective_value_(0.0),
+        objective_valid_(false) {
+      constraint_values_.resize(num_constraints, 0.0);
+      constraint_valid_.resize(num_constraints, false);
+   }
+
+   /**
+    * @brief Reset all validity flags to false
+    */
+   void invalidateAll() {
+      std::fill(constraint_valid_.begin(), constraint_valid_.end(), false);
+      objective_valid_ = false;
+   }
+};
+
+/**
  * @brief Struct to hold the context needed by the C trampolines.
  * This will be passed as the void* USRMEM cookie.
  */
@@ -24,7 +57,31 @@ typedef struct {
    Ipopt::Journalist* journalist_;
    Ipopt::SolveStatistics* stats_;
    Ipopt::IpoptProblemInfo* problem_info_;
+   FDEvalCache* fdeval_cache_;            // Cache for FDEvalIni optimization
 } IpoptConoptContext;
+
+/**
+ * @brief Cleanup function for IpoptConoptContext.
+ * Frees any allocated memory in the context.
+ */
+void CleanupIpoptConoptContext(IpoptConoptContext* context);
+
+/**
+ * @brief Get cached constraint value for a given row.
+ * @param context The context containing the cache
+ * @param row_idx The row index to get the value for
+ * @param value Output parameter for the cached value
+ * @return true if the value is valid and cached, false otherwise
+ */
+bool GetCachedConstraintValue(IpoptConoptContext* context, int row_idx, double& value);
+
+/**
+ * @brief Get cached objective value.
+ * @param context The context containing the cache
+ * @param value Output parameter for the cached objective value
+ * @return true if the objective value is valid and cached, false otherwise
+ */
+bool GetCachedObjectiveValue(IpoptConoptContext* context, double& value);
 
 /*
  * These are the C-style trampoline functions.
