@@ -67,7 +67,7 @@ namespace Ipopt {
       {
          COI_Create(&cntvect_);
          jnlst_->SetAllPrintLevels(J_SUMMARY);
-         stats_ = new SolveStatistics(); // <-- Create the shim stats object
+         stats_ = new SolveStatistics(); // <-- Create the SolveStatistics object
       }
 
       // Constructor accepting journalist
@@ -80,7 +80,7 @@ namespace Ipopt {
                jnlst_ = new Journalist();
                jnlst_->SetAllPrintLevels(J_SUMMARY);
            }
-           stats_ = new SolveStatistics(); // <-- Create the shim stats object
+           stats_ = new SolveStatistics(); // <-- Create the SolveStatistics object
       }
 
       /**
@@ -235,6 +235,11 @@ namespace Ipopt {
             return info_status;
          }
 
+         // Start timing
+         if (stats_) {
+            stats_->StartTiming();
+         }
+
          // --- Prepare the context cookie ---
          context_.tnlp_ = tnlp.get();
          context_.journalist_ = jnlst_.get();
@@ -243,6 +248,9 @@ namespace Ipopt {
 
         // --- Initialize FDEval cache ---
         context_.fdeval_cache_ = new FDEvalCache(problem_info_.m_split, problem_info_.nnz_jac_g, problem_info_.n);
+
+         // creating the status solution structure
+         context_.status_solution_ = new ConoptStatusSolution();
 
          COIDEF_UsrMem(cntvect_, &context_);
 
@@ -274,16 +282,34 @@ namespace Ipopt {
          // --- Solve the problem ---
          COI_Solve(cntvect_);
 
+         // Stop timing
+         if (stats_) {
+            stats_->StopTiming();
+         }
+
+         // reporting the final solution to the user
+         CallFinalizeSolutionWithCachedData(&context_);
+
+         // --- Populate SolveStatistics with CONOPT data ---
+         PopulateSolveStatistics(&context_);
+
+         // --- Cleanup StatusSolution object ---
+         if (context_.status_solution_) {
+            delete context_.status_solution_;
+            context_.status_solution_ = nullptr;
+         }
+
          // --- Cleanup FDEval cache ---
          if (context_.fdeval_cache_) {
             delete context_.fdeval_cache_;
             context_.fdeval_cache_ = nullptr;
          }
 
-         // ... (Get status from Conopt_Solution or Conopt_Status callbacks) ...
-         // ... (Populate our stats_ object) ...
+         // Return the solve status from the statistics
+         if (stats_) {
+            return stats_->SolveStatus();
+         }
 
-         // (Translate CONOPT status to Ipopt status)
          return Solve_Succeeded;
       }
 

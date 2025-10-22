@@ -113,6 +113,304 @@ bool IsObjectiveGradientCached(IpoptConoptContext* context) {
     return cache->isObjectiveGradientCached();
 }
 
+bool CallFinalizeSolutionWithCachedData(IpoptConoptContext* context) {
+   if (!context || !context->tnlp_ || !context->status_solution_) {
+      return false;
+   }
+
+   Ipopt::Journalist* jnlst = context->journalist_;
+   Ipopt::IpoptProblemInfo* problem_info = context->problem_info_;
+   ConoptStatusSolution* status_sol = context->status_solution_;
+
+   if (!problem_info) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                      "CONOPT Shim Error: ProblemInfo is NULL in CallFinalizeSolutionWithCachedData.\n");
+      }
+      return false;
+   }
+
+   // Check if we have cached status and solution data
+   if (!status_sol->status_cached_) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_MAIN,
+                      "CONOPT Shim Warning: No status data cached for finalize_solution.\n");
+      }
+      return false;
+   }
+
+   if (!status_sol->solution_cached_) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_MAIN,
+                      "CONOPT Shim Warning: No solution data cached for finalize_solution.\n");
+      }
+      return false;
+   }
+
+   // Translate CONOPT status codes to Ipopt SolverReturn
+   Ipopt::SolverReturn status;
+
+   // Map CONOPT MODSTA (Model Status) to Ipopt SolverReturn
+   switch (status_sol->conopt_modsta_) {
+      case 1:  // Optimal
+      case 15: // Solved Unique
+      case 16: // Solved
+      case 17: // Solved Singular
+         status = Ipopt::Solve_Succeeded;
+         break;
+      case 2:  // Locally optimal
+         status = Ipopt::Solved_To_Acceptable_Level;
+         break;
+      case 3:  // Unbounded
+         status = Ipopt::Diverging_Iterates;
+         break;
+      case 4:  // Infeasible
+      case 5:  // Locally infeasible
+      case 6:  // Intermediate infeasible
+         status = Ipopt::Local_Infeasibility;
+         break;
+      case 7:  // Intermediate non-optimal
+         status = Ipopt::Solved_To_Acceptable_Level;
+         break;
+      case 12: // Unknown type of error
+         status = Ipopt::Internal_Error;
+         break;
+      case 13: // Error no solution
+         status = Ipopt::Error_In_Step_Computation;
+         break;
+      default:
+         // For unknown status codes, check SOLSTA (Solver Status)
+         switch (status_sol->conopt_solsta_) {
+            case 1:  // Normal completion
+               status = Ipopt::Solve_Succeeded;
+               break;
+            case 2:  // Iteration interrupt
+               status = Ipopt::Maximum_Iterations_Exceeded;
+               break;
+            case 3:  // Resource interrupt
+               status = Ipopt::Maximum_CpuTime_Exceeded;
+               break;
+            case 4:  // Terminated by solver
+               status = Ipopt::Stop_At_Tiny_Step;
+               break;
+            case 5:  // Evaluation error limit
+               status = Ipopt::Invalid_Number_Detected;
+               break;
+            case 8:  // User Interrupt
+               status = Ipopt::User_Requested_Stop;
+               break;
+            case 9:  // Error: Setup failure
+            case 10: // Error: Solver failure
+            case 11: // Error: Internal solver error
+               status = Ipopt::Internal_Error;
+               break;
+            default:
+               status = Ipopt::Internal_Error;
+               break;
+         }
+         break;
+   }
+
+   try {
+      // Call finalize_solution with the cached data
+      context->tnlp_->finalize_solution(
+         status,
+         problem_info->n,
+         status_sol->x_solution_.data(),
+         status_sol->x_marginals_.data(),  // z_L (lower bound multipliers)
+         status_sol->x_marginals_.data(),  // z_U (upper bound multipliers) - CONOPT provides combined marginals
+         problem_info->m,
+         status_sol->y_solution_.data(),   // g (constraint values)
+         status_sol->y_marginals_.data(),  // lambda (constraint multipliers)
+         status_sol->conopt_objval_,
+         nullptr, // ip_data - not available from CONOPT
+         nullptr  // ip_cq - not available from CONOPT
+      );
+
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
+                      "CONOPT Shim: finalize_solution called with status %d (MODSTA=%d, SOLSTA=%d).\n",
+                      static_cast<int>(status), status_sol->conopt_modsta_, status_sol->conopt_solsta_);
+      }
+
+      return true;
+
+   } catch (const std::exception& e) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
+                      "CONOPT Shim: Exception in finalize_solution: %s\n", e.what());
+      }
+      return false;
+   } catch (...) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
+                      "CONOPT Shim: Unknown exception in finalize_solution.\n");
+      }
+      return false;
+   }
+}
+
+bool PopulateSolveStatistics(IpoptConoptContext* context) {
+   if (!context || !context->stats_ || !context->status_solution_) {
+      return false;
+   }
+
+   Ipopt::Journalist* jnlst = context->journalist_;
+   ConoptStatusSolution* status_sol = context->status_solution_;
+
+   // Check if we have cached data
+   if (!status_sol->status_cached_) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_MAIN,
+                      "CONOPT Shim Warning: No status data available for SolveStatistics.\n");
+      }
+      return false;
+   }
+
+   try {
+      // Cast to our SolveStatistics implementation
+      Ipopt::SolveStatistics* stats = dynamic_cast<Ipopt::SolveStatistics*>(context->stats_);
+      if (!stats) {
+         if (jnlst) {
+            jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                         "CONOPT Shim Error: SolveStatistics is not a SolveStatistics instance.\n");
+         }
+         return false;
+      }
+
+      // Set basic solve information
+      stats->SetIterationCount(status_sol->conopt_iter_);
+      stats->SetFinalObjective(status_sol->conopt_objval_);
+      stats->SetFinalScaledObjective(status_sol->conopt_objval_); // Assume no scaling for now
+
+      // Translate CONOPT status to Ipopt solve status
+      Ipopt::SolverReturn solve_status;
+      switch (status_sol->conopt_modsta_) {
+         case 1:  // Optimal
+         case 15: // Solved Unique
+         case 16: // Solved
+         case 17: // Solved Singular
+            solve_status = Ipopt::Solve_Succeeded;
+            break;
+         case 2:  // Locally optimal
+            solve_status = Ipopt::Solved_To_Acceptable_Level;
+            break;
+         case 3:  // Unbounded
+            solve_status = Ipopt::Diverging_Iterates;
+            break;
+         case 4:  // Infeasible
+         case 5:  // Locally infeasible
+         case 6:  // Intermediate infeasible
+            solve_status = Ipopt::Local_Infeasibility;
+            break;
+         case 7:  // Intermediate non-optimal
+            solve_status = Ipopt::Solved_To_Acceptable_Level;
+            break;
+         case 12: // Unknown type of error
+            solve_status = Ipopt::Internal_Error;
+            break;
+         case 13: // Error no solution
+            solve_status = Ipopt::Error_In_Step_Computation;
+            break;
+         default:
+            // Check SOLSTA for additional status information
+            switch (status_sol->conopt_solsta_) {
+               case 1:  // Normal completion
+                  solve_status = Ipopt::Solve_Succeeded;
+                  break;
+               case 2:  // Iteration interrupt
+                  solve_status = Ipopt::Maximum_Iterations_Exceeded;
+                  break;
+               case 3:  // Resource interrupt
+                  solve_status = Ipopt::Maximum_CpuTime_Exceeded;
+                  break;
+               case 4:  // Terminated by solver
+                  solve_status = Ipopt::Stop_At_Tiny_Step;
+                  break;
+               case 5:  // Evaluation error limit
+                  solve_status = Ipopt::Invalid_Number_Detected;
+                  break;
+               case 8:  // User Interrupt
+                  solve_status = Ipopt::User_Requested_Stop;
+                  break;
+               case 9:  // Error: Setup failure
+               case 10: // Error: Solver failure
+               case 11: // Error: Internal solver error
+                  solve_status = Ipopt::Internal_Error;
+                  break;
+               default:
+                  solve_status = Ipopt::Internal_Error;
+                  break;
+            }
+            break;
+      }
+      stats->SetSolveStatus(solve_status);
+
+      // Set convergence information
+      double dual_inf = 0.0;
+      double constr_viol = 0.0;
+      double bound_viol = 0.0;
+      double compl = 0.0;
+      double kkt_error = 0.0;
+
+      if (status_sol->solution_cached_) {
+         // Estimate primal infeasibility from constraint violations
+         double max_violation = 0.0;
+         for (size_t i = 0; i < status_sol->y_solution_.size(); ++i) {
+            // This is a simplified estimation - in practice you'd need to check against bounds
+            double violation = std::abs(status_sol->y_solution_[i]);
+            max_violation = std::max(max_violation, violation);
+         }
+         constr_viol = max_violation;
+
+         // Estimate dual infeasibility from marginal values
+         double max_dual_inf = 0.0;
+         for (size_t i = 0; i < status_sol->x_marginals_.size(); ++i) {
+            double dual_inf_val = std::abs(status_sol->x_marginals_[i]);
+            max_dual_inf = std::max(max_dual_inf, dual_inf_val);
+         }
+         dual_inf = max_dual_inf;
+
+         // Estimate bound violations (simplified)
+         bound_viol = 0.0; // Would need to check against variable bounds
+
+         // Estimate complementarity (simplified)
+         compl = 0.0; // Would need to compute from solution and bounds
+
+         // Estimate KKT error (simplified)
+         kkt_error = std::max(dual_inf, constr_viol);
+      }
+
+      stats->SetInfeasibilities(dual_inf, constr_viol, bound_viol, compl, kkt_error);
+      stats->SetScaledInfeasibilities(dual_inf, constr_viol, bound_viol, compl, kkt_error); // Assume no scaling
+
+      // Function evaluation counts are now automatically tracked in FDEvalIni
+      // Timing is now automatically tracked in OptimizeTNLP
+      // No need to set these manually anymore
+
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
+                      "CONOPT Shim: SolveStatistics populated (iterations=%d, obj=%g, status=%d).\n",
+                      status_sol->conopt_iter_, status_sol->conopt_objval_, static_cast<int>(solve_status));
+      }
+
+      return true;
+
+   } catch (const std::exception& e) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                      "CONOPT Shim: Exception in PopulateSolveStatistics: %s\n", e.what());
+      }
+      return false;
+   } catch (...) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                      "CONOPT Shim: Unknown exception in PopulateSolveStatistics.\n");
+      }
+      return false;
+   }
+}
+
 // --- Implementation of the Trampolines ---
 
 // Note: Conopt_ReadMatrix is tricky because Ipopt doesn't have a direct equivalent.
@@ -486,6 +784,11 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
                                "CONOPT Shim: eval_g failed in FDEvalIni.\n");
                }
                if (ERRCNT) (*ERRCNT)++;
+            } else {
+               // Increment constraint evaluation count
+               if (context->stats_) {
+                  context->stats_->IncrementConstraintEvaluations();
+               }
             }
 
             // Store constraint values for rows in ROWLIST
@@ -515,6 +818,11 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
                                "CONOPT Shim: eval_f failed in FDEvalIni.\n");
                }
                if (ERRCNT) (*ERRCNT)++;
+            } else {
+               // Increment objective evaluation count
+               if (context->stats_) {
+                  context->stats_->IncrementObjectiveEvaluations();
+               }
             }
             cache->objective_value_ = obj_value;
             cache->objective_valid_ = true;
@@ -540,6 +848,11 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
                                "CONOPT Shim: eval_grad_f failed in FDEvalIni.\n");
                }
                if (ERRCNT) (*ERRCNT)++;
+            } else {
+               // Increment objective gradient evaluation count
+               if (context->stats_) {
+                  context->stats_->IncrementObjectiveGradientEvaluations();
+               }
             }
 
             // Cache the objective gradient
@@ -556,6 +869,11 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
                             "CONOPT Shim: eval_jac_g failed in FDEvalIni.\n");
             }
             if (ERRCNT) (*ERRCNT)++;
+         } else {
+            // Increment constraint jacobian evaluation count
+            if (context->stats_) {
+               context->stats_->IncrementConstraintJacobianEvaluations();
+            }
          }
 
          // Cache the jacobian values
@@ -650,56 +968,92 @@ int COI_CALLCONV Conopt_FDEvalEnd(int IGNERR, int *ERRCNT, void *USRMEM)
 
 int COI_CALLCONV Conopt_Status(int MODSTA, int SOLSTA, int ITER, double OBJVAL, void *USRMEM)
 {
-   Ipopt::TNLP* tnlp = GetTNLP(USRMEM);
+   IpoptConoptContext* context = GetContext(USRMEM);
+   Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
 
-   // This maps directly to Ipopt's intermediate_callback.
-   // We need to translate CONOPT's MODSTA/SOLSTA to Ipopt::AlgorithmMode.
-   // We also need to fetch other values like inf_pr, inf_du etc.
-   // CONOPT might provide these through other means or not at all.
+   if (!context || !context->status_solution_) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                      "CONOPT Shim Error: Context or StatusSolution is NULL in Status.\n");
+      }
+      return 1; // Critical error
+   }
 
-   Ipopt::AlgorithmMode mode = Ipopt::RegularMode; // Placeholder
-   Ipopt::Number inf_pr = 0.0; // Placeholder
-   Ipopt::Number inf_du = 0.0; // Placeholder
-   // ... other placeholders ...
+   // Cache the status information for later use in finalize_solution
+   context->status_solution_->conopt_modsta_ = MODSTA;
+   context->status_solution_->conopt_solsta_ = SOLSTA;
+   context->status_solution_->conopt_iter_ = ITER;
+   context->status_solution_->conopt_objval_ = OBJVAL;
+   context->status_solution_->status_cached_ = true;
 
-   // NOTE: Ipopt's intermediate_callback expects non-const pointers for ip_data and ip_cq.
-   // CONOPT doesn't seem to pass these equivalents. We might need to pass NULL
-   // or create dummy objects if the user's callback expects them. Passing NULL for now.
-   bool continue_solve = tnlp->intermediate_callback(
-      mode, ITER, OBJVAL, inf_pr, inf_du,
-      0.0 /*mu*/, 0.0 /*d_norm*/, 0.0 /*regu_size*/, 0.0 /*alpha_du*/, 0.0 /*alpha_pr*/,
-      0 /*ls_trials*/, nullptr /*ip_data*/, nullptr /*ip_cq*/
-   );
+   if (jnlst) {
+      jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
+                   "CONOPT Shim: Status cached (MODSTA=%d, SOLSTA=%d, ITER=%d, OBJVAL=%g).\n",
+                   MODSTA, SOLSTA, ITER, OBJVAL);
+   }
 
-   return continue_solve ? 0 : 1; // Return 1 to signal termination request
+   return 0; // Success
 }
 
 
 int COI_CALLCONV Conopt_Solution(const double XVAL[], const double XMAR[], const int XBAS[], const int XSTA[],
    const double YVAL[], const double YMAR[], const int YBAS[], const int YSTA[], int NUMVAR, int NUMCON, void *USRMEM)
 {
-   Ipopt::TNLP* tnlp = GetTNLP(USRMEM);
+   IpoptConoptContext* context = GetContext(USRMEM);
+   Ipopt::IpoptProblemInfo* problem_info = GetProblemInfo(USRMEM);
+   Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
 
-   // This maps directly to Ipopt's finalize_solution.
-   // We need to translate CONOPT's status (presumably stored elsewhere)
-   // into Ipopt::SolverReturn status.
+   if (!context || !problem_info || !context->status_solution_) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                      "CONOPT Shim Error: Context, ProblemInfo, or StatusSolution is NULL in Solution.\n");
+      }
+      return 1; // Critical error
+   }
 
-   Ipopt::SolverReturn status = Ipopt::Solve_Succeeded; // Placeholder
-   Ipopt::Number obj_value = 0.0; // Placeholder - CONOPT might pass this separately
+   // Verify dimensions match
+   if (NUMVAR != problem_info->n || NUMCON != problem_info->m_split) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                      "CONOPT Shim Error: Dimension mismatch in Solution. "
+                      "Expected: n=%d, m_split=%d. Got: n=%d, m=%d\n",
+                      problem_info->n, problem_info->m_split, NUMVAR, NUMCON);
+      }
+      return 1; // Critical error
+   }
 
-   // Note: Ipopt needs g(x) values, CONOPT provides YVAL (constraint levels?).
-   //       Ipopt needs z_L/z_U, CONOPT provides XMAR (variable marginals?).
-   //       Ipopt needs lambda, CONOPT provides YMAR (constraint marginals?).
-   //       Careful mapping is needed.
-   //       Also, Ipopt expects non-const pointers for ip_data and ip_cq. Passing NULL.
+   ConoptStatusSolution* status_sol = context->status_solution_;
 
-   tnlp->finalize_solution(
-      status, NUMVAR, XVAL, XMAR /*assuming maps to z_L*/, XMAR /*assuming maps to z_U*/,
-      NUMCON, YVAL /*assuming maps to g*/, YMAR /*assuming maps to lambda*/,
-      obj_value, nullptr /*ip_data*/, nullptr /*ip_cq*/
-   );
+   // Cache the solution data for later use in finalize_solution
+   status_sol->x_solution_.assign(XVAL, XVAL + NUMVAR);
+   status_sol->x_marginals_.assign(XMAR, XMAR + NUMVAR);
+   status_sol->x_basis_.assign(XBAS, XBAS + NUMVAR);
+   status_sol->x_status_.assign(XSTA, XSTA + NUMVAR);
 
-   return 0; // Indicate success
+   // Map CONOPT constraint data to original constraint indices
+   status_sol->y_solution_.resize(problem_info->m, 0.0);
+   status_sol->y_marginals_.resize(problem_info->m, 0.0);
+   status_sol->y_basis_.resize(problem_info->m, 0);
+   status_sol->y_status_.resize(problem_info->m, 0);
+
+   for (int i = 0; i < NUMCON; ++i) {
+      int orig_idx = problem_info->original_constraint_map[i];
+      if (orig_idx >= 0 && orig_idx < problem_info->m) {
+         status_sol->y_solution_[orig_idx] = YVAL[i];
+         status_sol->y_marginals_[orig_idx] = YMAR[i];
+         status_sol->y_basis_[orig_idx] = YBAS[i];
+         status_sol->y_status_[orig_idx] = YSTA[i];
+      }
+   }
+
+   status_sol->solution_cached_ = true;
+
+   if (jnlst) {
+      jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
+                   "CONOPT Shim: Solution cached (n=%d, m=%d).\n", NUMVAR, NUMCON);
+   }
+
+   return 0; // Success
 }
 
 int COI_CALLCONV Conopt_Message(int SMSG, int DMSG, int NMSG, char *MSGV[], void *USRMEM)
@@ -751,6 +1105,7 @@ int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char *MSG,
 
    return 0; // Indicate success
 }
+
 
 // ... Implementations for other trampolines (Progress, SDDir, etc.) ...
 // These will follow the same pattern: cast USRMEM, call corresponding TNLP method

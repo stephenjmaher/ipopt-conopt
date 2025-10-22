@@ -16,6 +16,63 @@ namespace Ipopt {
    struct IpoptProblemInfo;
 }
 
+
+/**
+ * @brief Struct to hold cached status and solution data from CONOPT callbacks.
+ * This stores the status information and solution values for later use in finalize_solution.
+ */
+struct ConoptStatusSolution {
+   // Status information
+   bool status_cached_;                   // Whether status has been cached
+   int conopt_modsta_;                    // CONOPT model status
+   int conopt_solsta_;                    // CONOPT solver status
+   int conopt_iter_;                      // CONOPT iteration count
+   double conopt_objval_;                 // CONOPT objective value
+
+   // Solution data
+   bool solution_cached_;                 // Whether solution has been cached
+   std::vector<double> x_solution_;       // Final variable values
+   std::vector<double> x_marginals_;      // Variable marginals (z_L/z_U)
+   std::vector<int> x_basis_;             // Variable basis indicators
+   std::vector<int> x_status_;            // Variable status indicators
+   std::vector<double> y_solution_;       // Final constraint values
+   std::vector<double> y_marginals_;      // Constraint marginals (lambda)
+   std::vector<int> y_basis_;             // Constraint basis indicators
+   std::vector<int> y_status_;            // Constraint status indicators
+
+   /**
+    * @brief Constructor for ConoptStatusSolution
+    */
+   ConoptStatusSolution()
+      : status_cached_(false),
+        conopt_modsta_(0),
+        conopt_solsta_(0),
+        conopt_iter_(0),
+        conopt_objval_(0.0),
+        solution_cached_(false) {
+   }
+
+   /**
+    * @brief Reset all cached data
+    */
+   void reset() {
+      status_cached_ = false;
+      solution_cached_ = false;
+      conopt_modsta_ = 0;
+      conopt_solsta_ = 0;
+      conopt_iter_ = 0;
+      conopt_objval_ = 0.0;
+      x_solution_.clear();
+      x_marginals_.clear();
+      x_basis_.clear();
+      x_status_.clear();
+      y_solution_.clear();
+      y_marginals_.clear();
+      y_basis_.clear();
+      y_status_.clear();
+   }
+};
+
 /**
  * @brief Struct to hold cached constraint values and jacobian for FDEvalIni optimization.
  * This stores the results of constraint evaluations and jacobian with constant lookup time.
@@ -150,6 +207,7 @@ typedef struct {
    Ipopt::SolveStatistics* stats_;
    Ipopt::IpoptProblemInfo* problem_info_;
    FDEvalCache* fdeval_cache_;            // Cache for FDEvalIni optimization
+   ConoptStatusSolution* status_solution_; // Cache for status and solution data
 } IpoptConoptContext;
 
 /**
@@ -206,6 +264,24 @@ bool GetCachedObjectiveGradientValue(IpoptConoptContext* context, int var_idx, d
  * @return true if objective gradient is cached, false otherwise
  */
 bool IsObjectiveGradientCached(IpoptConoptContext* context);
+
+/**
+ * @brief Call finalize_solution with cached status and solution data.
+ * This should be called at the end of OptimizeTNLP after both Status and Solution
+ * callbacks have been invoked by CONOPT.
+ * @param context The context containing the cached data
+ * @return true on success, false on error
+ */
+bool CallFinalizeSolutionWithCachedData(IpoptConoptContext* context);
+
+/**
+ * @brief Populate SolveStatistics object with data from CONOPT.
+ * This extracts information from the cached status and solution data
+ * and populates the Ipopt SolveStatistics object.
+ * @param context The context containing the cached data and stats object
+ * @return true on success, false on error
+ */
+bool PopulateSolveStatistics(IpoptConoptContext* context);
 
 /*
  * These are the C-style trampoline functions.
