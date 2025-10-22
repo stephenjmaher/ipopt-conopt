@@ -259,14 +259,6 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
       ipopt_constraint_idx = problem_info->original_constraint_map[conopt_constraint_idx];
    }
 
-
-   // --- Assume new_x=true for simplicity ---
-   // Properly handling NEWPT/new_x requires more state management.
-   bool new_x = true;
-
-   bool success = true;
-   int evaluation_errors = 0;
-
    try {
       // --- Evaluate Function Value (MODE 1 or 3) ---
       if (MODE & 1) {
@@ -286,9 +278,7 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
                                "CONOPT Shim Error: No cached value for objective. "
                                "Objective was not in the ROWLIST from FDEvalIni.\n");
                }
-               evaluation_errors++;
-               if (ERRCNT) (*ERRCNT)++;
-               return 0; // Return success but with error count
+               return 1; // there is an error in the interface.
             }
          } else { // It's a constraint
             // Check for cached constraint value first
@@ -306,20 +296,13 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
                                "CONOPT Shim Error: No cached value for constraint row %d. "
                                "This row was not in the ROWLIST from FDEvalIni.\n", ROWNO);
                }
-               evaluation_errors++;
-               if (ERRCNT) (*ERRCNT)++;
-               return 0; // Return success but with error count
+               return 1; // there is an error in the interface.
             }
          }
       }
 
       // --- Evaluate Derivatives (MODE 2 or 3) ---
       if (MODE & 2) {
-          // Initialize Jacobian row/gradient to zero, as Ipopt only provides non-zeros
-          for(Ipopt::Index j=0; j<problem_info->n; ++j) {
-              JAC[j] = 0.0;
-          }
-
          if (is_objective) {
             // Check for cached objective gradient first
             if (IsObjectiveGradientCached(context)) {
@@ -335,9 +318,7 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
                                      "CONOPT Shim Error: No cached value for objective gradient at variable %d. "
                                      "Objective gradient was not properly cached in FDEvalIni.\n", j);
                      }
-                     evaluation_errors++;
-                     if (ERRCNT) (*ERRCNT)++;
-                     return 0; // Return success but with error count
+                     return 1; // There is an issue with the interface
                   }
                }
                if (jnlst) {
@@ -351,9 +332,7 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
                                "CONOPT Shim Error: No cached objective gradient. "
                                "Objective gradient was not cached in FDEvalIni.\n");
                }
-               evaluation_errors++;
-               if (ERRCNT) (*ERRCNT)++;
-               return 0; // Return success but with error count
+               return 1; // There is an issue with the interface
             }
          } else { // It's a constraint Jacobian row
                // Handle constraint Jacobian row
@@ -381,18 +360,19 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
                                                  "CONOPT Shim Error: No cached value for jacobian entry %d. "
                                                  "Jacobian was not properly cached in FDEvalIni.\n", orig_k);
                                  }
-                                 evaluation_errors++;
-                                 if (ERRCNT) (*ERRCNT)++;
-                                 return 0; // Return success but with error count
+                                 return 1; // There is an issue with the interface
                               }
                            } else {
-                              // This is an objective gradient entry - should not happen for constraints
-                              JAC[split_col] = 0.0;
+                              if (jnlst) {
+                                 jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                                              "CONOPT Shim Error: The constraint mapping is not consistent.\n");
+                              }
+                              return 1; // there is an issue with the interface.
                            }
                         } else {
                            // Should not happen if structure is correct
                            if (jnlst) jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN, "CONOPT Shim Error: Invalid column index %d from split Jacobian structure.\n", split_col);
-                           evaluation_errors++;
+                           return 1; // there is an issue with the interface
                         }
                      }
                   }
@@ -403,9 +383,7 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
                                   "CONOPT Shim Error: No cached jacobian. "
                                   "Jacobian was not cached in FDEvalIni.\n");
                   }
-                  evaluation_errors++;
-                  if (ERRCNT) (*ERRCNT)++;
-                  return 0; // Return success but with error count
+                  return 1; // there is an issue with the interface
                }
             }
          }
@@ -414,19 +392,11 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
       // Catch exceptions from user code
       if (jnlst) jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
                                "CONOPT Shim: Exception caught in user NLP evaluation: %s\n", e.what());
-      evaluation_errors++;
+      return 1;
    } catch (...) {
       if (jnlst) jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
                                "CONOPT Shim: Unknown exception caught in user NLP evaluation.\n");
-      evaluation_errors++;
-   }
-
-   // --- Final Error Handling ---
-   if (evaluation_errors > 0) {
-      success = false;
-      if (!IGNERR) { // Only count if IGNERR is 0
-         if (ERRCNT) (*ERRCNT) += evaluation_errors;
-      }
+      return 1;
    }
 
    // CONOPT Docs: Return non-zero for serious/permanent error.
@@ -516,7 +486,6 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
                                "CONOPT Shim: eval_g failed in FDEvalIni.\n");
                }
                if (ERRCNT) (*ERRCNT)++;
-               return 0; // Non-critical error, continue
             }
 
             // Store constraint values for rows in ROWLIST
@@ -546,7 +515,6 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
                                "CONOPT Shim: eval_f failed in FDEvalIni.\n");
                }
                if (ERRCNT) (*ERRCNT)++;
-               return 0; // Non-critical error, continue
             }
             cache->objective_value_ = obj_value;
             cache->objective_valid_ = true;
@@ -572,7 +540,6 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
                                "CONOPT Shim: eval_grad_f failed in FDEvalIni.\n");
                }
                if (ERRCNT) (*ERRCNT)++;
-               return 0; // Non-critical error, continue
             }
 
             // Cache the objective gradient
@@ -589,7 +556,6 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
                             "CONOPT Shim: eval_jac_g failed in FDEvalIni.\n");
             }
             if (ERRCNT) (*ERRCNT)++;
-            return 0; // Non-critical error, continue
          }
 
          // Cache the jacobian values
@@ -631,14 +597,12 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
                       "CONOPT Shim: Exception in FDEvalIni: %s\n", e.what());
       }
       if (ERRCNT) (*ERRCNT)++;
-      return 0; // Non-critical error, continue
    } catch (...) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
                       "CONOPT Shim: Unknown exception in FDEvalIni.\n");
       }
       if (ERRCNT) (*ERRCNT)++;
-      return 0; // Non-critical error, continue
    }
 
    return 0; // Success
