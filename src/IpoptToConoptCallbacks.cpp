@@ -80,10 +80,10 @@ int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[]
          VSTA[i] = varstatus;
       }
 
-      // Populate constraint RHS values (using split constraints)
+      // Populate constraint RHS values (generating split data on-the-fly)
       for (Ipopt::Index i = 0; i < NUMCON; ++i) {
-         TYPE[i] = int(problem_info->g_type[i]);
-         RHS[i] = problem_info->g_rhs[i];
+         TYPE[i] = int(problem_info->get_split_constraint_type(i));
+         RHS[i] = problem_info->get_split_constraint_rhs(i);
 
          // the equation status is not being given at this stage, since this requires the functions to be evaluated
          // first.
@@ -99,7 +99,7 @@ int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[]
       // Count non-zeros per column
       std::vector<Ipopt::Index> col_counts(NUMVAR, 0);
       for (Ipopt::Index k = 0; k < NUMNZ; ++k) {
-         Ipopt::Index col = problem_info->jac_g_jCol_split[k];
+         Ipopt::Index col = problem_info->get_split_jacobian_col(k);
          if (col >= 0 && col < NUMVAR) {
             col_counts[col]++;
          }
@@ -115,8 +115,8 @@ int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[]
       // Fill ROWNO array with row indices, maintaining column order
       std::vector<Ipopt::Index> col_positions(NUMVAR, 0);
       for (Ipopt::Index k = 0; k < NUMNZ; ++k) {
-         Ipopt::Index row = problem_info->jac_g_iRow_split[k];
-         Ipopt::Index col = problem_info->jac_g_jCol_split[k];
+         Ipopt::Index row = problem_info->get_split_jacobian_row(k);
+         Ipopt::Index col = problem_info->get_split_jacobian_col(k);
 
          if (col >= 0 && col < NUMVAR && row >= 0 && row < NUMCON) {
             Ipopt::Index pos = COLSTA[col] + col_positions[col];
@@ -150,10 +150,11 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
    IpoptConoptContext* context = GetContext(USRMEM);
    Ipopt::TNLP* tnlp = GetTNLP(USRMEM);
    Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
+   Ipopt::IpoptProblemInfo* problem_info = GetProblemInfo(USRMEM);
 
-   if (!tnlp) {
+   if (!tnlp || !problem_info) {
       // Log error even if journalist is null? Maybe stderr.
-      fprintf(stderr, "CONOPT Error: TNLP object is NULL in FDEval trampoline.\n");
+      fprintf(stderr, "CONOPT Error: TNLP or ProblemInfo object is NULL in FDEval trampoline.\n");
       if (ERRCNT) (*ERRCNT)++;
       return 1; // Indicate critical error
    }
@@ -161,19 +162,19 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
    // --- Adjust ROWNO based on Base ---
    // CONOPT doc mentions Base determines if ROWNO is 0/1 based. Ipopt is always C-style (0-based).
    // Assuming CONOPT uses 0-based if C_STYLE was requested.
-   // If CONOPT Obj Row is special (e.g., 0) and constraints start at 1, adjust here.
-   // Let's assume ROWNO_in = 0 for objective, ROWNO_in = 1..M for constraints based on doc.
-   // We will map this to Ipopt's 0..M-1 constraint indexing.
-   // **CRITICAL**: Verify CONOPT's objective row index convention! Assuming 0 here.
-   bool is_objective = (ROWNO_in == 0);
-   Ipopt::Index constraint_idx = -1;
+   // The objective function is now the last row in the constraint matrix.
+   bool is_objective = (ROWNO == problem_info->objective_row_index + 1); // CONOPT is 1-based
+   Ipopt::Index conopt_constraint_idx = -1;
+   Ipopt::Index ipopt_constraint_idx = -1;
    if (!is_objective) {
-      constraint_idx = ROWNO_in - 1; // Assuming constraints are 1-based from CONOPT
-      if (constraint_idx < 0 || constraint_idx >= g_m) {
-         if (jnlst) jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN, "CONOPT Shim Error: Invalid ROWNO %d received from CONOPT.\n", ROWNO_in);
+      conopt_constraint_idx = ROWNO - 1; // Assuming constraints are 1-based from CONOPT
+      if (conopt_constraint_idx < 0 || conopt_constraint_idx >= problem_info->m_split) {
+         if (jnlst) jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN, "CONOPT Shim Error: Invalid ROWNO %d received from CONOPT.\n", ROWNO);
          if (ERRCNT) (*ERRCNT)++;
          return 1; // Critical error
       }
+      // Map CONOPT constraint index to Ipopt constraint index using the mapping
+      ipopt_constraint_idx = problem_info->original_constraint_map[conopt_constraint_idx];
    }
 
 
@@ -189,20 +190,37 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
       if (MODE & 1) {
          if (is_objective) {
             Ipopt::Number obj_value;
-            if (!tnlp->eval_f(g_n, X, new_x, obj_value)) {
+            if (!tnlp->eval_f(problem_info->n, X, new_x, obj_value)) {
                evaluation_errors++;
                if (jnlst) jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP, "CONOPT Shim: User's eval_f failed.\n");
             } else {
                *G = obj_value;
             }
          } else { // It's a constraint
-            // Need temporary storage for *all* constraints
-            std::vector<Ipopt::Number> all_g(g_m);
-            if (!tnlp->eval_g(g_n, X, new_x, g_m, all_g.data())) {
+            // Need temporary storage for *all* original constraints
+            std::vector<Ipopt::Number> all_g(problem_info->m);
+            if (!tnlp->eval_g(problem_info->n, X, new_x, problem_info->m, all_g.data())) {
                evaluation_errors++;
-               if (jnlst) jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP, "CONOPT Shim: User's eval_g failed for row %d.\n", ROWNO_in);
+               if (jnlst) jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP, "CONOPT Shim: User's eval_g failed for row %d.\n", ROWNO);
             } else {
-               *G = all_g[constraint_idx]; // Store the requested constraint value
+               // Get the original constraint value
+               Ipopt::Number constraint_value = all_g[ipopt_constraint_idx];
+
+               // Apply constraint splitting logic if needed
+               // For range constraints, we need to check which split constraint this is
+               Ipopt::ConoptConstraintType split_type = problem_info->get_split_constraint_type(conopt_constraint_idx);
+               if (split_type == Ipopt::ConoptConstraintType::GREATEREQ) {
+                  // This is the lower bound constraint: g(x) >= g_l
+                  // The value should be g(x) - g_l, but CONOPT expects g(x)
+                  *G = constraint_value;
+               } else if (split_type == Ipopt::ConoptConstraintType::LESSEQ) {
+                  // This is the upper bound constraint: g(x) <= g_u
+                  // The value should be g_u - g(x), but CONOPT expects g(x)
+                  *G = constraint_value;
+               } else {
+                  // For equality, single bound, or free constraints, use the value directly
+                  *G = constraint_value;
+               }
             }
          }
       }
@@ -210,36 +228,47 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
       // --- Evaluate Derivatives (MODE 2 or 3) ---
       if (MODE & 2) {
           // Initialize Jacobian row/gradient to zero, as Ipopt only provides non-zeros
-          for(Ipopt::Index j=0; j<g_n; ++j) {
+          for(Ipopt::Index j=0; j<problem_info->n; ++j) {
               JAC[j] = 0.0;
           }
 
          if (is_objective) {
             // Get the full gradient into the dense JAC vector provided by CONOPT
-            if (!tnlp->eval_grad_f(g_n, X, new_x, JAC)) {
+            if (!tnlp->eval_grad_f(problem_info->n, X, new_x, JAC)) {
                evaluation_errors++;
                if (jnlst) jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP, "CONOPT Shim: User's eval_grad_f failed.\n");
             }
          } else { // It's a constraint Jacobian row
-            // 1. Get *all* Jacobian values from Ipopt into our cached buffer
-            if (!tnlp->eval_jac_g(g_n, X, new_x, g_m, g_nnz_jac_g,
-                                 nullptr, nullptr, g_jac_g_values.data())) {
-               evaluation_errors++;
-               if (jnlst) jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP, "CONOPT Shim: User's eval_jac_g failed fetching values.\n");
-            } else {
-               // 2. Populate the dense CONOPT JAC vector for the requested row
-               for (Ipopt::Index k = 0; k < g_nnz_jac_g; ++k) {
-                  // Check if this non-zero belongs to the requested constraint row
-                  // Adjusting for potential 1-based indexing from Ipopt structure if needed
-                  Ipopt::Index row_idx = g_jac_g_iRow[k] - (g_index_style == Ipopt::TNLP::FORTRAN_STYLE ? 1 : 0);
-                  if (row_idx == constraint_idx) {
-                     Ipopt::Index col_idx = g_jac_g_jCol[k] - (g_index_style == Ipopt::TNLP::FORTRAN_STYLE ? 1 : 0);
-                     if (col_idx >= 0 && col_idx < g_n) {
-                         JAC[col_idx] = g_jac_g_values[k];
-                     } else {
-                        // Should not happen if structure is correct
-                         if (jnlst) jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN, "CONOPT Shim Error: Invalid column index %d from Ipopt structure.\n", col_idx);
-                         evaluation_errors++;
+               // Handle constraint Jacobian row
+               // 1. Get *all* Jacobian values from Ipopt into our cached buffer
+               if (!tnlp->eval_jac_g(problem_info->n, X, new_x, problem_info->m, problem_info->nnz_jac_g,
+                                    problem_info->jac_g_iRow.data(), problem_info->jac_g_jCol.data(), problem_info->jac_g_values.data())) {
+                  evaluation_errors++;
+                  if (jnlst) jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP, "CONOPT Shim: User's eval_jac_g failed fetching values.\n");
+               } else {
+                  // 2. Populate the dense CONOPT JAC vector for the requested row
+                  // We need to find all split Jacobian entries that correspond to this constraint
+                  for (Ipopt::Index k = 0; k < problem_info->nnz_jac_g_split; ++k) {
+                     // Get the split Jacobian row and column for this entry
+                     Ipopt::Index split_row = problem_info->get_split_jacobian_row(k);
+                     Ipopt::Index split_col = problem_info->get_split_jacobian_col(k);
+
+                     if (split_row == conopt_constraint_idx) {
+                        // This entry belongs to the requested constraint row
+                        if (split_col >= 0 && split_col < problem_info->n) {
+                           // Get the value from the original Jacobian if it's not an objective entry
+                           if (problem_info->jacobian_split_map[k] != -1) {
+                              Ipopt::Index orig_k = problem_info->jacobian_split_map[k];
+                              JAC[split_col] = problem_info->jac_g_values[orig_k];
+                           } else {
+                              // This is an objective gradient entry - should not happen for constraints
+                              JAC[split_col] = 0.0;
+                           }
+                        } else {
+                           // Should not happen if structure is correct
+                           if (jnlst) jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN, "CONOPT Shim Error: Invalid column index %d from split Jacobian structure.\n", split_col);
+                           evaluation_errors++;
+                        }
                      }
                   }
                }
