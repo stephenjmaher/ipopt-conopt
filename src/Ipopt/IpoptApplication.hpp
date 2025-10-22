@@ -241,8 +241,8 @@ namespace Ipopt {
          context_.stats_ = stats_.get();
          context_.problem_info_ = &problem_info_; // Add problem info to context
 
-         // --- Initialize FDEval cache ---
-         context_.fdeval_cache_ = new FDEvalCache(problem_info_.m_split);
+        // --- Initialize FDEval cache ---
+        context_.fdeval_cache_ = new FDEvalCache(problem_info_.m_split, problem_info_.nnz_jac_g, problem_info_.n);
 
          COIDEF_UsrMem(cntvect_, &context_);
 

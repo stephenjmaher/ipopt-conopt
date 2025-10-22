@@ -17,26 +17,42 @@ namespace Ipopt {
 }
 
 /**
- * @brief Struct to hold cached constraint values for FDEvalIni optimization.
- * This stores the results of constraint evaluations with constant lookup time.
+ * @brief Struct to hold cached constraint values and jacobian for FDEvalIni optimization.
+ * This stores the results of constraint evaluations and jacobian with constant lookup time.
  */
 struct FDEvalCache {
    std::vector<double> constraint_values_;  // Cached constraint values (size = numcons)
    std::vector<bool> constraint_valid_;     // Validity flags for each constraint (size = numcons)
    double objective_value_;                // Cached objective value
    bool objective_valid_;                  // Whether objective value is valid
+   std::vector<double> objective_gradient_; // Cached objective gradient (size = n)
+   bool objective_gradient_valid_;         // Whether objective gradient is valid
+   std::vector<double> jacobian_values_;   // Cached jacobian values (size = nnz_jac_g)
+   std::vector<bool> jacobian_valid_;      // Validity flags for jacobian entries
+   bool jacobian_cached_;                  // Whether jacobian has been cached
    int num_constraints_;                   // Number of constraints (for bounds checking)
+   int nnz_jacobian_;                      // Number of non-zero jacobian entries
+   int num_variables_;                     // Number of variables (for objective gradient)
 
    /**
     * @brief Constructor for FDEvalCache
     * @param num_constraints Number of constraints to allocate space for
+    * @param nnz_jacobian Number of non-zero jacobian entries to allocate space for
+    * @param num_variables Number of variables (for objective gradient)
     */
-   FDEvalCache(int num_constraints)
+   FDEvalCache(int num_constraints, int nnz_jacobian, int num_variables)
       : num_constraints_(num_constraints),
+        nnz_jacobian_(nnz_jacobian),
+        num_variables_(num_variables),
         objective_value_(0.0),
-        objective_valid_(false) {
+        objective_valid_(false),
+        objective_gradient_valid_(false),
+        jacobian_cached_(false) {
       constraint_values_.resize(num_constraints, 0.0);
       constraint_valid_.resize(num_constraints, false);
+      objective_gradient_.resize(num_variables, 0.0);
+      jacobian_values_.resize(nnz_jacobian, 0.0);
+      jacobian_valid_.resize(nnz_jacobian, false);
    }
 
    /**
@@ -44,7 +60,83 @@ struct FDEvalCache {
     */
    void invalidateAll() {
       std::fill(constraint_valid_.begin(), constraint_valid_.end(), false);
+      std::fill(jacobian_valid_.begin(), jacobian_valid_.end(), false);
       objective_valid_ = false;
+      objective_gradient_valid_ = false;
+      jacobian_cached_ = false;
+   }
+
+   /**
+    * @brief Cache jacobian values
+    * @param jacobian_values Vector containing jacobian values
+    */
+   void cacheJacobian(const std::vector<double>& jacobian_values) {
+      if (jacobian_values.size() == static_cast<size_t>(nnz_jacobian_)) {
+         jacobian_values_ = jacobian_values;
+         std::fill(jacobian_valid_.begin(), jacobian_valid_.end(), true);
+         jacobian_cached_ = true;
+      }
+   }
+
+   /**
+    * @brief Get cached jacobian value for a given index
+    * @param jacobian_idx The jacobian index to get the value for
+    * @param value Output parameter for the cached value
+    * @return true if the value is valid and cached, false otherwise
+    */
+   bool getCachedJacobianValue(int jacobian_idx, double& value) const {
+      if (jacobian_idx < 0 || jacobian_idx >= nnz_jacobian_) {
+         return false;
+      }
+      if (jacobian_valid_[jacobian_idx]) {
+         value = jacobian_values_[jacobian_idx];
+         return true;
+      }
+      return false;
+   }
+
+   /**
+    * @brief Check if jacobian has been cached
+    * @return true if jacobian is cached, false otherwise
+    */
+   bool isJacobianCached() const {
+      return jacobian_cached_;
+   }
+
+   /**
+    * @brief Cache objective gradient values
+    * @param gradient_values Vector containing objective gradient values
+    */
+   void cacheObjectiveGradient(const std::vector<double>& gradient_values) {
+      if (gradient_values.size() == static_cast<size_t>(num_variables_)) {
+         objective_gradient_ = gradient_values;
+         objective_gradient_valid_ = true;
+      }
+   }
+
+   /**
+    * @brief Get cached objective gradient value for a given variable index
+    * @param var_idx The variable index to get the gradient for
+    * @param value Output parameter for the cached value
+    * @return true if the value is valid and cached, false otherwise
+    */
+   bool getCachedObjectiveGradientValue(int var_idx, double& value) const {
+      if (var_idx < 0 || var_idx >= num_variables_) {
+         return false;
+      }
+      if (objective_gradient_valid_) {
+         value = objective_gradient_[var_idx];
+         return true;
+      }
+      return false;
+   }
+
+   /**
+    * @brief Check if objective gradient has been cached
+    * @return true if objective gradient is cached, false otherwise
+    */
+   bool isObjectiveGradientCached() const {
+      return objective_gradient_valid_;
    }
 };
 
@@ -82,6 +174,38 @@ bool GetCachedConstraintValue(IpoptConoptContext* context, int row_idx, double& 
  * @return true if the objective value is valid and cached, false otherwise
  */
 bool GetCachedObjectiveValue(IpoptConoptContext* context, double& value);
+
+/**
+ * @brief Get cached jacobian value for a given index.
+ * @param context The context containing the cache
+ * @param jacobian_idx The jacobian index to get the value for
+ * @param value Output parameter for the cached value
+ * @return true if the value is valid and cached, false otherwise
+ */
+bool GetCachedJacobianValue(IpoptConoptContext* context, int jacobian_idx, double& value);
+
+/**
+ * @brief Check if jacobian has been cached.
+ * @param context The context containing the cache
+ * @return true if jacobian is cached, false otherwise
+ */
+bool IsJacobianCached(IpoptConoptContext* context);
+
+/**
+ * @brief Get cached objective gradient value for a given variable index.
+ * @param context The context containing the cache
+ * @param var_idx The variable index to get the gradient for
+ * @param value Output parameter for the cached value
+ * @return true if the value is valid and cached, false otherwise
+ */
+bool GetCachedObjectiveGradientValue(IpoptConoptContext* context, int var_idx, double& value);
+
+/**
+ * @brief Check if objective gradient has been cached.
+ * @param context The context containing the cache
+ * @return true if objective gradient is cached, false otherwise
+ */
+bool IsObjectiveGradientCached(IpoptConoptContext* context);
 
 /*
  * These are the C-style trampoline functions.

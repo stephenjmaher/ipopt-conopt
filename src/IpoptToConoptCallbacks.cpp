@@ -73,6 +73,46 @@ bool GetCachedObjectiveValue(IpoptConoptContext* context, double& value) {
     return false;
 }
 
+// Helper function to get cached jacobian value
+bool GetCachedJacobianValue(IpoptConoptContext* context, int jacobian_idx, double& value) {
+    if (!context || !context->fdeval_cache_) {
+        return false;
+    }
+
+    FDEvalCache* cache = context->fdeval_cache_;
+    return cache->getCachedJacobianValue(jacobian_idx, value);
+}
+
+// Helper function to check if jacobian is cached
+bool IsJacobianCached(IpoptConoptContext* context) {
+    if (!context || !context->fdeval_cache_) {
+        return false;
+    }
+
+    FDEvalCache* cache = context->fdeval_cache_;
+    return cache->isJacobianCached();
+}
+
+// Helper function to get cached objective gradient value
+bool GetCachedObjectiveGradientValue(IpoptConoptContext* context, int var_idx, double& value) {
+    if (!context || !context->fdeval_cache_) {
+        return false;
+    }
+
+    FDEvalCache* cache = context->fdeval_cache_;
+    return cache->getCachedObjectiveGradientValue(var_idx, value);
+}
+
+// Helper function to check if objective gradient is cached
+bool IsObjectiveGradientCached(IpoptConoptContext* context) {
+    if (!context || !context->fdeval_cache_) {
+        return false;
+    }
+
+    FDEvalCache* cache = context->fdeval_cache_;
+    return cache->isObjectiveGradientCached();
+}
+
 // --- Implementation of the Trampolines ---
 
 // Note: Conopt_ReadMatrix is tricky because Ipopt doesn't have a direct equivalent.
@@ -281,21 +321,45 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
           }
 
          if (is_objective) {
-            // Get the full gradient into the dense JAC vector provided by CONOPT
-            if (!tnlp->eval_grad_f(problem_info->n, X, new_x, JAC)) {
+            // Check for cached objective gradient first
+            if (IsObjectiveGradientCached(context)) {
+               // Use cached objective gradient
+               for (Ipopt::Index j = 0; j < problem_info->n; ++j) {
+                  double cached_value;
+                  if (GetCachedObjectiveGradientValue(context, j, cached_value)) {
+                     JAC[j] = cached_value;
+                  } else {
+                     // This is an error - gradient should be fully cached
+                     if (jnlst) {
+                        jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                                     "CONOPT Shim Error: No cached value for objective gradient at variable %d. "
+                                     "Objective gradient was not properly cached in FDEvalIni.\n", j);
+                     }
+                     evaluation_errors++;
+                     if (ERRCNT) (*ERRCNT)++;
+                     return 0; // Return success but with error count
+                  }
+               }
+               if (jnlst) {
+                  jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
+                               "CONOPT Shim: Using cached objective gradient.\n");
+               }
+            } else {
+               // This is an error - objective gradient should be cached
+               if (jnlst) {
+                  jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                               "CONOPT Shim Error: No cached objective gradient. "
+                               "Objective gradient was not cached in FDEvalIni.\n");
+               }
                evaluation_errors++;
-               if (jnlst) jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP, "CONOPT Shim: User's eval_grad_f failed.\n");
+               if (ERRCNT) (*ERRCNT)++;
+               return 0; // Return success but with error count
             }
          } else { // It's a constraint Jacobian row
                // Handle constraint Jacobian row
-               // 1. Get *all* Jacobian values from Ipopt into our cached buffer
-               if (!tnlp->eval_jac_g(problem_info->n, X, new_x, problem_info->m, problem_info->nnz_jac_g,
-                                    problem_info->jac_g_iRow.data(), problem_info->jac_g_jCol.data(), problem_info->jac_g_values.data())) {
-                  evaluation_errors++;
-                  if (jnlst) jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP, "CONOPT Shim: User's eval_jac_g failed fetching values.\n");
-               } else {
-                  // 2. Populate the dense CONOPT JAC vector for the requested row
-                  // We need to find all split Jacobian entries that correspond to this constraint
+               // Check if jacobian is cached first
+               if (IsJacobianCached(context)) {
+                  // Use cached jacobian values
                   for (Ipopt::Index k = 0; k < problem_info->nnz_jac_g_split; ++k) {
                      // Get the split Jacobian row and column for this entry
                      Ipopt::Index split_row = problem_info->get_split_jacobian_row(k);
@@ -304,10 +368,23 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
                      if (split_row == conopt_constraint_idx) {
                         // This entry belongs to the requested constraint row
                         if (split_col >= 0 && split_col < problem_info->n) {
-                           // Get the value from the original Jacobian if it's not an objective entry
+                           // Get the value from the cached jacobian if it's not an objective entry
                            if (problem_info->jacobian_split_map[k] != -1) {
                               Ipopt::Index orig_k = problem_info->jacobian_split_map[k];
-                              JAC[split_col] = problem_info->jac_g_values[orig_k];
+                              double cached_value;
+                              if (GetCachedJacobianValue(context, orig_k, cached_value)) {
+                                 JAC[split_col] = cached_value;
+                              } else {
+                                 // This is an error - jacobian should be fully cached
+                                 if (jnlst) {
+                                    jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                                                 "CONOPT Shim Error: No cached value for jacobian entry %d. "
+                                                 "Jacobian was not properly cached in FDEvalIni.\n", orig_k);
+                                 }
+                                 evaluation_errors++;
+                                 if (ERRCNT) (*ERRCNT)++;
+                                 return 0; // Return success but with error count
+                              }
                            } else {
                               // This is an objective gradient entry - should not happen for constraints
                               JAC[split_col] = 0.0;
@@ -319,6 +396,16 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
                         }
                      }
                   }
+               } else {
+                  // This is an error - jacobian should be cached
+                  if (jnlst) {
+                     jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                                  "CONOPT Shim Error: No cached jacobian. "
+                                  "Jacobian was not cached in FDEvalIni.\n");
+                  }
+                  evaluation_errors++;
+                  if (ERRCNT) (*ERRCNT)++;
+                  return 0; // Return success but with error count
                }
             }
          }
@@ -384,9 +471,12 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
       return 1; // Critical error
    }
 
-   // Only process if MODE is 1 or 3 (function evaluation needed)
-   if (!(MODE & 1)) {
-      // MODE 2 only - no function evaluation needed, just return success
+   // Process based on MODE: 1=function, 2=derivatives, 3=both
+   bool need_function_eval = (MODE & 1);
+   bool need_derivative_eval = (MODE & 2);
+
+   if (!need_function_eval && !need_derivative_eval) {
+      // No evaluation needed
       return 0;
    }
 
@@ -404,66 +494,135 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
    // Reset validity flags for all constraints
    cache->invalidateAll();
 
+   // first checking if the objective is the only row needing evaluation. It is determined later if the objective
+   // needs to be evaluated.
+   bool has_constraints = true;
+   bool has_objective = false;
+   if (LISTSIZE == 1 && ROWLIST[0] == problem_info->objective_row_index)
+   {
+      has_constraints = false;
+      has_objective = true;
+   }
+
    try {
-      // first checking if the objective is the only row needing evaluation. It is determined later if the objective
-      // needs to be evaluated.
-      bool has_constraints = true;
-      bool has_objective = false;
-      if (LISTSIZE == 1 && ROWLIST[0] == problem_info->objective_row_index)
-      {
-         has_constraints = false;
-         has_objective = true;
-      }
-
-      if (has_constraints) {
-         // Evaluate all original constraints
-         std::vector<Ipopt::Number> all_g(problem_info->m);
-         if (!tnlp->eval_g(problem_info->n, X, true, problem_info->m, all_g.data())) {
-            if (jnlst) {
-               jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP,
-                            "CONOPT Shim: eval_g failed in FDEvalIni.\n");
+      // Only evaluate functions if MODE requires it
+      if (need_function_eval) {
+         if (has_constraints) {
+            // Evaluate all original constraints
+            std::vector<Ipopt::Number> all_g(problem_info->m);
+            if (!tnlp->eval_g(problem_info->n, X, true, problem_info->m, all_g.data())) {
+               if (jnlst) {
+                  jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP,
+                               "CONOPT Shim: eval_g failed in FDEvalIni.\n");
+               }
+               if (ERRCNT) (*ERRCNT)++;
+               return 0; // Non-critical error, continue
             }
-            if (ERRCNT) (*ERRCNT)++;
-            return 0; // Non-critical error, continue
-         }
 
-         // Store constraint values for rows in ROWLIST
-         for (int i = 0; i < LISTSIZE; ++i) {
-            int row_idx = ROWLIST[i];
-            if (row_idx == problem_info->objective_row_index) {
-               // Skip objective for now, will handle separately. Marking that the objective needs evaluation.
-               has_objective = true;
-               continue;
-            } else if (row_idx >= 0 && row_idx < problem_info->m_split) {
-               // Map CONOPT constraint index to Ipopt constraint index
-               Ipopt::Index ipopt_constraint_idx = problem_info->original_constraint_map[row_idx];
-               if (ipopt_constraint_idx >= 0 && ipopt_constraint_idx < problem_info->m) {
-                  cache->constraint_values_[row_idx] = all_g[ipopt_constraint_idx];
-                  cache->constraint_valid_[row_idx] = true;
+            // Store constraint values for rows in ROWLIST
+            for (int i = 0; i < LISTSIZE; ++i) {
+               int row_idx = ROWLIST[i];
+               if (row_idx == problem_info->objective_row_index) {
+                  // Skip objective for now, will handle separately. Marking that the objective needs evaluation.
+                  has_objective = true;
+                  continue;
+               } else if (row_idx >= 0 && row_idx < problem_info->m_split) {
+                  // Map CONOPT constraint index to Ipopt constraint index
+                  Ipopt::Index ipopt_constraint_idx = problem_info->original_constraint_map[row_idx];
+                  if (ipopt_constraint_idx >= 0 && ipopt_constraint_idx < problem_info->m) {
+                     cache->constraint_values_[row_idx] = all_g[ipopt_constraint_idx];
+                     cache->constraint_valid_[row_idx] = true;
+                  }
                }
             }
          }
+
+         // Evaluate objective if it's in the ROWLIST
+         if (has_objective) {
+            Ipopt::Number obj_value;
+            if (!tnlp->eval_f(problem_info->n, X, true, obj_value)) {
+               if (jnlst) {
+                  jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP,
+                               "CONOPT Shim: eval_f failed in FDEvalIni.\n");
+               }
+               if (ERRCNT) (*ERRCNT)++;
+               return 0; // Non-critical error, continue
+            }
+            cache->objective_value_ = obj_value;
+            cache->objective_valid_ = true;
+         }
       }
 
-      // Evaluate objective if it's in the ROWLIST
-      if (has_objective) {
-         Ipopt::Number obj_value;
-         if (!tnlp->eval_f(problem_info->n, X, true, obj_value)) {
+      // Evaluate derivatives if needed (MODE 2 or 3)
+      if (need_derivative_eval) {
+         // Check if objective gradient is needed
+         for (int i = 0; i < LISTSIZE; ++i) {
+            if (ROWLIST[i] == problem_info->objective_row_index) {
+               has_objective = true;
+               break;
+            }
+         }
+
+         // Evaluate objective gradient if needed
+         if (has_objective) {
+            std::vector<Ipopt::Number> objective_gradient(problem_info->n);
+            if (!tnlp->eval_grad_f(problem_info->n, X, true, objective_gradient.data())) {
+               if (jnlst) {
+                  jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP,
+                               "CONOPT Shim: eval_grad_f failed in FDEvalIni.\n");
+               }
+               if (ERRCNT) (*ERRCNT)++;
+               return 0; // Non-critical error, continue
+            }
+
+            // Cache the objective gradient
+            cache->cacheObjectiveGradient(objective_gradient);
+         }
+
+         // Evaluate all jacobian values
+         std::vector<Ipopt::Number> jacobian_values(problem_info->nnz_jac_g);
+         if (!tnlp->eval_jac_g(problem_info->n, X, true, problem_info->m, problem_info->nnz_jac_g,
+                               problem_info->jac_g_iRow.data(), problem_info->jac_g_jCol.data(),
+                               jacobian_values.data())) {
             if (jnlst) {
                jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP,
-                            "CONOPT Shim: eval_f failed in FDEvalIni.\n");
+                            "CONOPT Shim: eval_jac_g failed in FDEvalIni.\n");
             }
             if (ERRCNT) (*ERRCNT)++;
             return 0; // Non-critical error, continue
          }
-         cache->objective_value_ = obj_value;
-         cache->objective_valid_ = true;
+
+         // Cache the jacobian values
+         cache->cacheJacobian(jacobian_values);
+
+         if (jnlst) {
+            jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_NLP,
+                         "CONOPT Shim: FDEvalIni cached jacobian values%s.\n",
+                         need_objective_gradient ? " and objective gradient" : "");
+         }
       }
 
       if (jnlst) {
-         jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_NLP,
-                      "CONOPT Shim: FDEvalIni cached %d constraint values%s.\n",
-                      LISTSIZE, has_objective ? " and objective" : "");
+         if (need_function_eval) {
+            // Count how many constraint values were actually cached
+            int cached_constraints = 0;
+            bool cached_objective = false;
+            for (int i = 0; i < LISTSIZE; ++i) {
+               int row_idx = ROWLIST[i];
+               if (row_idx == problem_info->objective_row_index) {
+                  cached_objective = true;
+               } else if (row_idx >= 0 && row_idx < problem_info->m_split) {
+                  cached_constraints++;
+               }
+            }
+            jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_NLP,
+                         "CONOPT Shim: FDEvalIni cached %d constraint values%s.\n",
+                         cached_constraints, cached_objective ? " and objective" : "");
+         }
+         if (need_derivative_eval) {
+            jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_NLP,
+                         "CONOPT Shim: FDEvalIni cached jacobian values.\n");
+         }
       }
 
    } catch (const std::exception& e) {
