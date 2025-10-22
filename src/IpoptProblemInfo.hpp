@@ -69,23 +69,21 @@ namespace Ipopt {
         std::vector<Number> lambda_init;   // Initial constraint multipliers (length m)
         std::vector<LinearityType> const_linearity; // Constraint linearity types (length m)
 
-        // === Split Constraint Information (for CONOPT) ===
-        Index m_split;                     // Number of constraints after splitting
-        std::vector<Number> g_rhs;         // RHS values for split constraints (length m_split)
-        std::vector<Number> g_type;        // the constraint type for Conopt
-        std::vector<LinearityType> const_linearity_split; // Linearity for split constraints (length m_split)
+        // === Constraint Splitting Mapping (for CONOPT) ===
+        Index m_split;                     // Number of constraints after splitting (includes objective)
         std::vector<Index> original_constraint_map; // Maps split constraint index to original constraint index (length m_split)
+        std::vector<Index> split_constraint_map;    // Maps original constraint index to first split constraint index (length m)
+        Index objective_row_index;         // Index of the objective row in the split constraint matrix (-1 if not added)
 
         // === Jacobian Structure ===
         std::vector<Index> jac_g_iRow;     // Jacobian row indices (length nnz_jac_g)
         std::vector<Index> jac_g_jCol;     // Jacobian column indices (length nnz_jac_g)
         std::vector<Number> jac_g_values;  // Jacobian values (length nnz_jac_g)
 
-        // === Split Jacobian Structure (for CONOPT) ===
+        // === Jacobian Splitting Mapping (for CONOPT) ===
         Index nnz_jac_g_split;             // Number of non-zeros in split Jacobian
-        std::vector<Index> jac_g_iRow_split; // Split Jacobian row indices (length nnz_jac_g_split)
-        std::vector<Index> jac_g_jCol_split; // Split Jacobian column indices (length nnz_jac_g_split)
-        std::vector<Number> jac_g_values_split; // Split Jacobian values (length nnz_jac_g_split)
+        std::vector<Index> jacobian_split_map; // Maps split Jacobian index to original Jacobian index (length nnz_jac_g_split)
+        std::vector<Index> jacobian_split_rows; // Direct mapping to split constraint rows (length nnz_jac_g_split)
 
         // === Hessian Structure ===
         std::vector<Index> hess_iRow;      // Hessian row indices (length nnz_h_lag)
@@ -103,7 +101,7 @@ namespace Ipopt {
         // === Constructor ===
         IpoptProblemInfo() :
             n(0), m(0), nnz_jac_g(0), nnz_h_lag(0), index_style(C_STYLE),
-            m_split(0), nnz_jac_g_split(0),
+            m_split(0), objective_row_index(-1), nnz_jac_g_split(0),
             num_nonlin_vars(0),
             has_initial_x(false), has_initial_z(false), has_initial_lambda(false),
             has_variable_linearity(false), has_constraint_linearity(false),
@@ -171,13 +169,13 @@ namespace Ipopt {
             // Clear previous split data
             m_split = 0;
             nnz_jac_g_split = 0;
-            g_rhs.clear();
-            g_type.clear();
-            const_linearity_split.clear();
+            objective_row_index = -1;
             original_constraint_map.clear();
-            jac_g_iRow_split.clear();
-            jac_g_jCol_split.clear();
-            jac_g_values_split.clear();
+            split_constraint_map.clear();
+            jacobian_split_map.clear();
+
+            // Initialize split constraint mapping for original constraints
+            split_constraint_map.resize(m, -1);
 
             // Count how many constraints we'll have after splitting
             for (Index i = 0; i < m; ++i) {
@@ -191,65 +189,36 @@ namespace Ipopt {
                 }
             }
 
-            // Resize split constraint vectors
-            g_rhs.resize(m_split);
-            g_type.resize(m_split);
-            const_linearity_split.resize(m_split);
+            // Add one more constraint for the objective function
+            m_split += 1;
+
+            // Resize mapping vectors
             original_constraint_map.resize(m_split);
 
-            // Process each original constraint
+            // Process each original constraint and create mapping
             Index split_idx = 0;
             for (Index i = 0; i < m; ++i) {
                 ConoptConstraintType type = constraint_type(i);
+                split_constraint_map[i] = split_idx; // Record first split index for this constraint
 
-                if (type == ConoptConstraintType::EQUAL) {
-                    g_rhs[split_idx] = g_l[i];
-                    g_type[split_idx] = ConoptConstraintType::EQUAL;
-                    const_linearity_split[split_idx] = const_linearity[i];
-                    original_constraint_map[split_idx] = i;
-                    split_idx++;
-                }
-                else if (type == ConoptConstraintType::RANGE) {
+                if (type == ConoptConstraintType::RANGE) {
                     // Both bounds: create two constraints
-                    // First constraint: g(x) >= g_l
-                    g_rhs[split_idx] = g_l[i];
-                    g_type[split_idx] = ConoptConstraintType::GREATEREQ;
-                    const_linearity_split[split_idx] = const_linearity[i];
                     original_constraint_map[split_idx] = i;
                     split_idx++;
-
-                    // Second constraint: g(x) <= g_u
-                    g_rhs[split_idx] = g_u[i];
-                    g_type[split_idx] = ConoptConstraintType::LESSEQ;
-                    const_linearity_split[split_idx] = const_linearity[i];
                     original_constraint_map[split_idx] = i;
                     split_idx++;
                 }
-                else if (type == ConoptConstraintType::GREATEREQ) {
-                    // Only lower bound: g(x) >= g_l
-                    g_rhs[split_idx] = g_l[i];
-                    g_type[split_idx] = ConoptConstraintType::GREATEREQ;
-                    const_linearity_split[split_idx] = const_linearity[i];
-                    original_constraint_map[split_idx] = i;
-                    split_idx++;
-                }
-                else if (type == ConoptConstraintType::LESSEQ) {
-                    // Only upper bound: g(x) <= g_u
-                    g_rhs[split_idx] = g_u[i];
-                    g_type[split_idx] = ConoptConstraintType::LESSEQ;
-                    const_linearity_split[split_idx] = const_linearity[i];
-                    original_constraint_map[split_idx] = i;
-                    split_idx++;
-                }
-                else if (type == ConoptConstraintType::FREE) {
-                    // Free constraint: no bounds
-                    g_rhs[split_idx] = 0.0; // RHS doesn't matter for free constraints
-                    g_type[split_idx] = ConoptConstraintType::FREE;
-                    const_linearity_split[split_idx] = const_linearity[i];
+                else {
+                    // for all other constraints we need one mapping.
                     original_constraint_map[split_idx] = i;
                     split_idx++;
                 }
             }
+
+            // Add the objective function as the last constraint (type FREE)
+            objective_row_index = split_idx;
+            original_constraint_map[split_idx] = -1; // Special marker for objective (not a constraint)
+            split_idx++;
 
             // Now split the Jacobian structure
             split_jacobian_structure();
@@ -260,9 +229,7 @@ namespace Ipopt {
          */
         void split_jacobian_structure() {
             nnz_jac_g_split = 0;
-            jac_g_iRow_split.clear();
-            jac_g_jCol_split.clear();
-            jac_g_values_split.clear();
+            jacobian_split_map.clear();
 
             // Count non-zeros for split Jacobian
             for (Index k = 0; k < nnz_jac_g; ++k) {
@@ -272,65 +239,131 @@ namespace Ipopt {
                 if (type == ConoptConstraintType::RANGE) {
                     // Both bounds: this entry appears in both split constraints
                     nnz_jac_g_split += 2;
-                } else if (type != ConoptConstraintType::FREE) {
+                } else {
                     // All other types: this entry appears once
                     nnz_jac_g_split += 1;
                 }
             }
 
-            // Resize split Jacobian vectors
-            jac_g_iRow_split.resize(nnz_jac_g_split);
-            jac_g_jCol_split.resize(nnz_jac_g_split);
-            jac_g_values_split.resize(nnz_jac_g_split);
+            // Add dense objective function gradient (all n variables)
+            nnz_jac_g_split += n;
 
-            // Create split Jacobian structure
+            // Resize Jacobian mapping vectors
+            jacobian_split_map.resize(nnz_jac_g_split);
+            jacobian_split_rows.resize(nnz_jac_g_split);
+
+            // Create split Jacobian mapping
             Index split_k = 0;
             for (Index k = 0; k < nnz_jac_g; ++k) {
                 Index orig_row = jac_g_iRow[k];
-                Index col = jac_g_jCol[k];
                 ConoptConstraintType type = constraint_type(orig_row);
 
                 if (type == ConoptConstraintType::RANGE) {
                     // Both bounds: create two entries
-                    // Find the split constraint indices for this original constraint
-                    Index split_row_lower = -1, split_row_upper = -1;
-                    for (Index s = 0; s < m_split; ++s) {
-                        if (original_constraint_map[s] == orig_row) {
-                            if (g_type[s] == ConoptConstraintType::GREATEREQ) {
-                                split_row_lower = s;
-                            } else if (g_type[s] == ConoptConstraintType::LESSEQ) {
-                                split_row_upper = s;
-                            }
-                        }
-                    }
-
-                    // Lower bound constraint
-                    jac_g_iRow_split[split_k] = split_row_lower;
-                    jac_g_jCol_split[split_k] = col;
-                    jac_g_values_split[split_k] = 0.0; // Will be set during evaluation
+                    Index first_split = split_constraint_map[orig_row];
+                    jacobian_split_map[split_k] = k; // Map to original Jacobian entry
+                    jacobian_split_rows[split_k] = first_split; // Lower bound constraint
+                    split_k++;
+                    jacobian_split_map[split_k] = k; // Map to original Jacobian entry
+                    jacobian_split_rows[split_k] = first_split + 1; // Upper bound constraint
                     split_k++;
 
-                    // Upper bound constraint
-                    jac_g_iRow_split[split_k] = split_row_upper;
-                    jac_g_jCol_split[split_k] = col;
-                    jac_g_values_split[split_k] = 0.0; // Will be set during evaluation
-                    split_k++;
-
-                } else if (type != ConoptConstraintType::FREE) {
-                    // All other types: find the corresponding split constraint
-                    Index split_row = -1;
-                    for (Index s = 0; s < m_split; ++s) {
-                        if (original_constraint_map[s] == orig_row) {
-                            split_row = s;
-                            break;
-                        }
-                    }
-                    jac_g_iRow_split[split_k] = split_row;
-                    jac_g_jCol_split[split_k] = col;
-                    jac_g_values_split[split_k] = 0.0; // Will be set during evaluation
+                } else {
+                    // All other types: map to original entry
+                    Index split_row = split_constraint_map[orig_row];
+                    jacobian_split_map[split_k] = k;
+                    jacobian_split_rows[split_k] = split_row;
                     split_k++;
                 }
             }
+
+            // Add objective function gradient entries (dense row)
+            // These don't map to original Jacobian (they're new)
+            for (Index j = 0; j < n; ++j) {
+                jacobian_split_map[split_k] = -1; // Special marker for objective gradient
+                jacobian_split_rows[split_k] = objective_row_index; // Objective constraint row
+                split_k++;
+            }
+        }
+
+        // === Helper methods for generating split data on-the-fly ===
+
+        /**
+         * @brief Get constraint type for a split constraint index
+         */
+        ConoptConstraintType get_split_constraint_type(Index split_idx) const {
+            // if the index maps to the objective row, then we just return the
+            // constraint type FREE
+            if (split_idx == objective_row_index) {
+                return ConoptConstraintType::FREE;
+            }
+
+            Index orig_idx = original_constraint_map[split_idx];
+            ConoptConstraintType type = constraint_type(orig_idx);
+
+            // if the constraint type is RANGE, then we need to get the split
+            // inequalities. The first one is always >=, then second is <=.
+            if (type == ConoptConstraintType::RANGE) {
+                // Determine if this is the lower or upper bound constraint
+                Index first_split = split_constraint_map[orig_idx];
+                if (split_idx == first_split) {
+                    return ConoptConstraintType::GREATEREQ;
+                } else {
+                    return ConoptConstraintType::LESSEQ;
+                }
+            }
+
+            return type;
+        }
+
+        /**
+         * @brief Get RHS value for a split constraint index
+         */
+        Number get_split_constraint_rhs(Index split_idx) const {
+            // if the index maps to an objective row, then we just return 0.0
+            if (split_idx == objective_row_index) {
+                return 0.0; // RHS doesn't matter for objective
+            }
+
+            Index orig_idx = original_constraint_map[split_idx];
+            ConoptConstraintType type = constraint_type(orig_idx);
+
+            // for RANGE constraints, the first is >=, then the second is <=
+            if (type == ConoptConstraintType::RANGE) {
+                // Determine if this is the lower or upper bound constraint
+                Index first_split = split_constraint_map[orig_idx];
+                if (split_idx == first_split) {
+                    return g_l[orig_idx]; // Lower bound
+                } else {
+                    return g_u[orig_idx]; // Upper bound
+                }
+            } else if (type == ConoptConstraintType::EQUAL || type == ConoptConstraintType::GREATEREQ) {
+                return g_l[orig_idx];
+            } else if (type == ConoptConstraintType::LESSEQ) {
+                return g_u[orig_idx];
+            } else {
+                return 0.0; // FREE constraint
+            }
+        }
+
+        /**
+         * @brief Get split Jacobian row index for a split Jacobian entry
+         */
+        Index get_split_jacobian_row(Index split_k) const {
+            return jacobian_split_rows[split_k];
+        }
+
+        /**
+         * @brief Get split Jacobian column index for a split Jacobian entry
+         */
+        Index get_split_jacobian_col(Index split_k) const {
+            if (jacobian_split_map[split_k] == -1) {
+                // This is an objective gradient entry
+                return split_k - (nnz_jac_g_split - n); // Column index for objective
+            }
+
+            Index orig_k = jacobian_split_map[split_k];
+            return jac_g_jCol[orig_k];
         }
 
         /**
@@ -350,6 +383,7 @@ namespace Ipopt {
         void clear() {
             n = m = nnz_jac_g = nnz_h_lag = 0;
             m_split = nnz_jac_g_split = 0;
+            objective_row_index = -1;
             index_style = C_STYLE;
             num_nonlin_vars = 0;
 
@@ -373,14 +407,11 @@ namespace Ipopt {
             hess_jCol.clear();
             hess_values.clear();
 
-            // Clear split constraint data
-            g_rhs.clear();
-            g_type.clear();
-            const_linearity_split.clear();
+            // Clear split constraint mapping data
             original_constraint_map.clear();
-            jac_g_iRow_split.clear();
-            jac_g_jCol_split.clear();
-            jac_g_values_split.clear();
+            split_constraint_map.clear();
+            jacobian_split_map.clear();
+            jacobian_split_rows.clear();
 
             has_initial_x = has_initial_z = has_initial_lambda = false;
             has_variable_linearity = has_constraint_linearity = false;
