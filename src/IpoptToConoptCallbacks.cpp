@@ -4,8 +4,11 @@
  */
 
 #include "IpoptToConoptCallbacks.hpp"
-#include "Ipopt/TNLP.hpp"
+#include "IpTNLP.hpp"
 #include "IpJournalist.hpp"
+#include "Ipopt/IpSolveStatistics.hpp"
+#include "IpoptProblemInfo.hpp"
+#include <cassert>
 #include <vector>
 #include <string>
 #include <algorithm> // For std::max
@@ -147,10 +150,10 @@ bool CallFinalizeSolutionWithCachedData(IpoptConoptContext* context) {
       return false;
    }
 
-   // Translate CONOPT status codes to Ipopt SolverReturn
-   Ipopt::SolverReturn status;
+   // Translate CONOPT status codes to Ipopt ApplicationReturnStatus
+   Ipopt::ApplicationReturnStatus status;
 
-   // Map CONOPT MODSTA (Model Status) to Ipopt SolverReturn
+   // Map CONOPT MODSTA (Model Status) to Ipopt ApplicationReturnStatus
    switch (status_sol->conopt_modsta_) {
       case 1:  // Optimal
       case 15: // Solved Unique
@@ -167,7 +170,7 @@ bool CallFinalizeSolutionWithCachedData(IpoptConoptContext* context) {
       case 4:  // Infeasible
       case 5:  // Locally infeasible
       case 6:  // Intermediate infeasible
-         status = Ipopt::Local_Infeasibility;
+         status = Ipopt::Infeasible_Problem_Detected;
          break;
       case 7:  // Intermediate non-optimal
          status = Ipopt::Solved_To_Acceptable_Level;
@@ -191,7 +194,7 @@ bool CallFinalizeSolutionWithCachedData(IpoptConoptContext* context) {
                status = Ipopt::Maximum_CpuTime_Exceeded;
                break;
             case 4:  // Terminated by solver
-               status = Ipopt::Stop_At_Tiny_Step;
+               status = Ipopt::Search_Direction_Becomes_Too_Small;
                break;
             case 5:  // Evaluation error limit
                status = Ipopt::Invalid_Number_Detected;
@@ -212,9 +215,53 @@ bool CallFinalizeSolutionWithCachedData(IpoptConoptContext* context) {
    }
 
    try {
+      // Convert ApplicationReturnStatus to SolverReturn
+      Ipopt::SolverReturn solver_status;
+      switch (status) {
+         case Ipopt::Solve_Succeeded:
+            solver_status = Ipopt::SUCCESS;
+            break;
+         case Ipopt::Solved_To_Acceptable_Level:
+            solver_status = Ipopt::STOP_AT_ACCEPTABLE_POINT;
+            break;
+         case Ipopt::Infeasible_Problem_Detected:
+            solver_status = Ipopt::LOCAL_INFEASIBILITY;
+            break;
+         case Ipopt::Search_Direction_Becomes_Too_Small:
+            solver_status = Ipopt::STOP_AT_TINY_STEP;
+            break;
+         case Ipopt::Diverging_Iterates:
+            solver_status = Ipopt::DIVERGING_ITERATES;
+            break;
+         case Ipopt::User_Requested_Stop:
+            solver_status = Ipopt::USER_REQUESTED_STOP;
+            break;
+         case Ipopt::Feasible_Point_Found:
+            solver_status = Ipopt::FEASIBLE_POINT_FOUND;
+            break;
+         case Ipopt::Maximum_Iterations_Exceeded:
+            solver_status = Ipopt::MAXITER_EXCEEDED;
+            break;
+         case Ipopt::Maximum_CpuTime_Exceeded:
+            solver_status = Ipopt::CPUTIME_EXCEEDED;
+            break;
+         case Ipopt::Error_In_Step_Computation:
+            solver_status = Ipopt::ERROR_IN_STEP_COMPUTATION;
+            break;
+         case Ipopt::Invalid_Number_Detected:
+            solver_status = Ipopt::INVALID_NUMBER_DETECTED;
+            break;
+         case Ipopt::Internal_Error:
+            solver_status = Ipopt::INTERNAL_ERROR;
+            break;
+         default:
+            solver_status = Ipopt::INTERNAL_ERROR;
+            break;
+      }
+
       // Call finalize_solution with the cached data
       context->tnlp_->finalize_solution(
-         status,
+         solver_status,
          problem_info->n,
          status_sol->x_solution_.data(),
          status_sol->x_marginals_.data(),  // z_L (lower bound multipliers)
@@ -284,7 +331,7 @@ bool PopulateSolveStatistics(IpoptConoptContext* context) {
       stats->SetFinalScaledObjective(status_sol->conopt_objval_); // Assume no scaling for now
 
       // Translate CONOPT status to Ipopt solve status
-      Ipopt::SolverReturn solve_status;
+      Ipopt::ApplicationReturnStatus solve_status;
       switch (status_sol->conopt_modsta_) {
          case 1:  // Optimal
          case 15: // Solved Unique
@@ -301,7 +348,7 @@ bool PopulateSolveStatistics(IpoptConoptContext* context) {
          case 4:  // Infeasible
          case 5:  // Locally infeasible
          case 6:  // Intermediate infeasible
-            solve_status = Ipopt::Local_Infeasibility;
+            solve_status = Ipopt::Infeasible_Problem_Detected;
             break;
          case 7:  // Intermediate non-optimal
             solve_status = Ipopt::Solved_To_Acceptable_Level;
@@ -325,7 +372,7 @@ bool PopulateSolveStatistics(IpoptConoptContext* context) {
                   solve_status = Ipopt::Maximum_CpuTime_Exceeded;
                   break;
                case 4:  // Terminated by solver
-                  solve_status = Ipopt::Stop_At_Tiny_Step;
+                  solve_status = Ipopt::Search_Direction_Becomes_Too_Small;
                   break;
                case 5:  // Evaluation error limit
                   solve_status = Ipopt::Invalid_Number_Detected;
@@ -350,7 +397,7 @@ bool PopulateSolveStatistics(IpoptConoptContext* context) {
       double dual_inf = 0.0;
       double constr_viol = 0.0;
       double bound_viol = 0.0;
-      double compl = 0.0;
+      double complementarity = 0.0;
       double kkt_error = 0.0;
 
       if (status_sol->solution_cached_) {
@@ -375,14 +422,14 @@ bool PopulateSolveStatistics(IpoptConoptContext* context) {
          bound_viol = 0.0; // Would need to check against variable bounds
 
          // Estimate complementarity (simplified)
-         compl = 0.0; // Would need to compute from solution and bounds
+          complementarity = 0.0; // Would need to compute from solution and bounds
 
          // Estimate KKT error (simplified)
          kkt_error = std::max(dual_inf, constr_viol);
       }
 
-      stats->SetInfeasibilities(dual_inf, constr_viol, bound_viol, compl, kkt_error);
-      stats->SetScaledInfeasibilities(dual_inf, constr_viol, bound_viol, compl, kkt_error); // Assume no scaling
+      stats->SetInfeasibilities(dual_inf, constr_viol, bound_viol, complementarity, kkt_error);
+      stats->SetScaledInfeasibilities(dual_inf, constr_viol, bound_viol, complementarity, kkt_error); // Assume no scaling
 
       // Function evaluation counts are now automatically tracked in FDEvalIni
       // Timing is now automatically tracked in OptimizeTNLP
@@ -633,56 +680,55 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
                return 1; // There is an issue with the interface
             }
          } else { // It's a constraint Jacobian row
-               // Handle constraint Jacobian row
-               // Check if jacobian is cached first
-               if (IsJacobianCached(context)) {
-                  // Use cached jacobian values
-                  for (Ipopt::Index k = 0; k < problem_info->nnz_jac_g_split; ++k) {
-                     // Get the split Jacobian row and column for this entry
-                     Ipopt::Index split_row = problem_info->get_split_jacobian_row(k);
-                     Ipopt::Index split_col = problem_info->get_split_jacobian_col(k);
+            // Handle constraint Jacobian row
+            // Check if jacobian is cached first
+            if (IsJacobianCached(context)) {
+               // Use cached jacobian values
+               for (Ipopt::Index k = 0; k < problem_info->nnz_jac_g_split; ++k) {
+                  // Get the split Jacobian row and column for this entry
+                  Ipopt::Index split_row = problem_info->get_split_jacobian_row(k);
+                  Ipopt::Index split_col = problem_info->get_split_jacobian_col(k);
 
-                     if (split_row == conopt_constraint_idx) {
-                        // This entry belongs to the requested constraint row
-                        if (split_col >= 0 && split_col < problem_info->n) {
-                           // Get the value from the cached jacobian if it's not an objective entry
-                           if (problem_info->jacobian_split_map[k] != -1) {
-                              Ipopt::Index orig_k = problem_info->jacobian_split_map[k];
-                              double cached_value;
-                              if (GetCachedJacobianValue(context, orig_k, cached_value)) {
-                                 JAC[split_col] = cached_value;
-                              } else {
-                                 // This is an error - jacobian should be fully cached
-                                 if (jnlst) {
-                                    jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                                                 "CONOPT Shim Error: No cached value for jacobian entry %d. "
-                                                 "Jacobian was not properly cached in FDEvalIni.\n", orig_k);
-                                 }
-                                 return 1; // There is an issue with the interface
-                              }
+                  if (split_row == conopt_constraint_idx) {
+                     // This entry belongs to the requested constraint row
+                     if (split_col >= 0 && split_col < problem_info->n) {
+                        // Get the value from the cached jacobian if it's not an objective entry
+                        if (problem_info->jacobian_split_map[k] != -1) {
+                           Ipopt::Index orig_k = problem_info->jacobian_split_map[k];
+                           double cached_value;
+                           if (GetCachedJacobianValue(context, orig_k, cached_value)) {
+                              JAC[split_col] = cached_value;
                            } else {
+                              // This is an error - jacobian should be fully cached
                               if (jnlst) {
                                  jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                                              "CONOPT Shim Error: The constraint mapping is not consistent.\n");
+                                              "CONOPT Shim Error: No cached value for jacobian entry %d. "
+                                              "Jacobian was not properly cached in FDEvalIni.\n", orig_k);
                               }
-                              return 1; // there is an issue with the interface.
+                              return 1; // There is an issue with the interface
                            }
                         } else {
-                           // Should not happen if structure is correct
-                           if (jnlst) jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN, "CONOPT Shim Error: Invalid column index %d from split Jacobian structure.\n", split_col);
-                           return 1; // there is an issue with the interface
+                           if (jnlst) {
+                              jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                                           "CONOPT Shim Error: The constraint mapping is not consistent.\n");
+                           }
+                           return 1; // there is an issue with the interface.
                         }
+                     } else {
+                        // Should not happen if structure is correct
+                        if (jnlst) jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN, "CONOPT Shim Error: Invalid column index %d from split Jacobian structure.\n", split_col);
+                        return 1; // there is an issue with the interface
                      }
                   }
-               } else {
-                  // This is an error - jacobian should be cached
-                  if (jnlst) {
-                     jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                                  "CONOPT Shim Error: No cached jacobian. "
-                                  "Jacobian was not cached in FDEvalIni.\n");
-                  }
-                  return 1; // there is an issue with the interface
                }
+            } else {
+               // This is an error - jacobian should be cached
+               if (jnlst) {
+                  jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                               "CONOPT Shim Error: No cached jacobian. "
+                               "Jacobian was not cached in FDEvalIni.\n");
+               }
+               return 1; // there is an issue with the interface
             }
          }
       }
@@ -882,7 +928,7 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
          if (jnlst) {
             jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_NLP,
                          "CONOPT Shim: FDEvalIni cached jacobian values%s.\n",
-                         need_objective_gradient ? " and objective gradient" : "");
+                         has_objective ? " and objective gradient" : "");
          }
       }
 

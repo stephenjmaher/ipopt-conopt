@@ -138,7 +138,7 @@ namespace Ipopt {
         /**
          * @brief utility method for getting the constraint type.
          */
-        ConoptConstraintType constraint_type(int orig_row) {
+        ConoptConstraintType constraint_type(int orig_row) const {
             ConoptConstraintType type;
             bool has_lower = IsFiniteNumber(g_l[orig_row]);
             bool has_upper = IsFiniteNumber(g_u[orig_row]);

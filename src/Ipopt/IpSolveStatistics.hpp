@@ -11,6 +11,8 @@
 #include "IpReferenced.hpp"
 #include "IpSmartPtr.hpp"
 #include "IpUtils.hpp"
+#include "../IpoptTypes.hpp"
+#include "IpReturnCodes.hpp"
 #include <chrono>
 #include <ctime>
 
@@ -126,14 +128,12 @@ public:
    }
 
    // Additional method to get solve status (not in original but useful for CONOPT)
-   virtual SolverReturn SolveStatus() const
+   virtual ApplicationReturnStatus SolveStatus() const
    {
       return solve_status_;
    }
 
    // Timing methods for CONOPT integration
-   void StartTiming();
-   void StopTiming();
 
    // Setter methods for populating the statistics (not in original but needed for CONOPT)
    void SetIterationCount(Index iters)
@@ -146,14 +146,14 @@ public:
       Number dual_inf,
       Number constr_viol,
       Number bound_viol,
-      Number compl,
+      Number complementarity,
       Number kkt_error
    )
    {
       dual_inf_ = dual_inf;
       constr_viol_ = constr_viol;
       bound_viol_ = bound_viol;
-      compl_ = compl;
+      compl_ = complementarity;
       kkt_error_ = kkt_error;
    }
 
@@ -161,14 +161,14 @@ public:
       Number scaled_dual_inf,
       Number scaled_constr_viol,
       Number scaled_bound_viol,
-      Number scaled_compl,
+      Number scaled_complementarity,
       Number scaled_kkt_error
    )
    {
       scaled_dual_inf_ = scaled_dual_inf;
       scaled_constr_viol_ = scaled_constr_viol;
       scaled_bound_viol_ = scaled_bound_viol;
-      scaled_compl_ = scaled_compl;
+      scaled_compl_ = scaled_complementarity;
       scaled_kkt_error_ = scaled_kkt_error;
    }
 
@@ -182,7 +182,7 @@ public:
       scaled_obj_val_ = scaled_obj_val;
    }
 
-   void SetSolveStatus(SolverReturn status)
+   void SetSolveStatus(ApplicationReturnStatus status)
    {
       solve_status_ = status;
    }
@@ -253,16 +253,6 @@ private:
 
 private:
 
-   SolveStatistics();
-
-   SolveStatistics(
-      const SolveStatistics&
-   );
-
-   void operator=(
-      const SolveStatistics&
-   );
-
    Index num_iters_;
    /* Total CPU time */
    Number total_cpu_time_;
@@ -290,7 +280,7 @@ private:
    Number kkt_error_;
 
    // Additional field for solve status (not in original but useful for CONOPT)
-   SolverReturn solve_status_;
+   ApplicationReturnStatus solve_status_;
 
    // Timing fields for CONOPT integration
    Number start_cpu_time_;

@@ -8,7 +8,9 @@
 #include "IpSmartPtr.hpp"
 #include "IpReferenced.hpp"
 #include "IpReturnCodes.hpp"
-#include "IpoptSolveStatistics.hpp" // <-- Include the original stats header
+#include "IpSolveStatistics.hpp"
+#include "IpJournalist.hpp"
+#include "IpTNLP.hpp"
 // ... etc ...
 
 // 2. INCLUDE THE CONOPT C-API
@@ -17,6 +19,8 @@
 // 3. INCLUDE OUR NEW TRAMPOLINE DECLARATIONS
 #include "IpoptToConoptCallbacks.hpp"
 #include "IpoptProblemInfo.hpp"
+#include <vector>
+#include <string>
 
 // 4. FORWARD DECLARE THE OTHER SHIM CLASSES
 namespace Ipopt {
@@ -25,6 +29,19 @@ namespace Ipopt {
    class Journalist;
    class RegisteredOptions;
    class SolveStatistics;
+
+   // Dummy OptionsList class
+   class OptionsList : public ReferencedObject {
+   public:
+      void SetNumericValue(const std::string& name, Number value) {
+         // Stubbed - do nothing
+      }
+
+      void SetStringValue(const std::string& name, const std::string& value) {
+         // Stubbed - do nothing
+      }
+   };
+
 }
 
 namespace Ipopt {
@@ -66,7 +83,6 @@ namespace Ipopt {
          jnlst_(new Journalist())
       {
          COI_Create(&cntvect_);
-         jnlst_->SetAllPrintLevels(J_SUMMARY);
          stats_ = new SolveStatistics(); // <-- Create the SolveStatistics object
       }
 
@@ -76,9 +92,8 @@ namespace Ipopt {
          jnlst_(jnlst)
       {
            COI_Create(&cntvect_);
-           if (!jnlst_) {
+           if (IsNull(jnlst_)) {
                jnlst_ = new Journalist();
-               jnlst_->SetAllPrintLevels(J_SUMMARY);
            }
            stats_ = new SolveStatistics(); // <-- Create the SolveStatistics object
       }
@@ -106,7 +121,7 @@ namespace Ipopt {
        * This method calls all the necessary TNLP methods to gather problem data
        */
       ApplicationReturnStatus RetrieveProblemInfo(SmartPtr<TNLP> tnlp) {
-         if (!tnlp) {
+         if (IsNull(tnlp)) {
             return Invalid_Problem_Definition;
          }
 
@@ -114,15 +129,27 @@ namespace Ipopt {
          problem_info_.clear();
 
          // 1. Get basic problem dimensions
+         TNLP::IndexStyleEnum index_style;
          if (!tnlp->get_nlp_info(problem_info_.n, problem_info_.m,
                                 problem_info_.nnz_jac_g, problem_info_.nnz_h_lag,
-                                problem_info_.index_style)) {
-            if (jnlst_) {
+                                index_style)) {
+            if (!IsNull(jnlst_)) {
                jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
                              "CONOPT Shim: Failed to get NLP info from TNLP.\n");
             }
             return Invalid_Problem_Definition;
          }
+
+         // Store the index style and check for FORTRAN style (not supported)
+         if (index_style == TNLP::FORTRAN_STYLE) {
+            if (!IsNull(jnlst_)) {
+               jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                             "CONOPT Shim Error: FORTRAN-style indexing is not supported for C/C++ projects. "
+                             "Please use C-style (0-based) indexing in your TNLP implementation.\n");
+            }
+            return Invalid_Problem_Definition;
+         }
+         problem_info_.index_style = C_STYLE;
 
          // Resize vectors based on dimensions
          problem_info_.resize_vectors();
@@ -132,7 +159,7 @@ namespace Ipopt {
                                    problem_info_.x_u.data(),
                                    problem_info_.m, problem_info_.g_l.data(),
                                    problem_info_.g_u.data())) {
-            if (jnlst_) {
+            if (!IsNull(jnlst_)) {
                jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
                              "CONOPT Shim: Failed to get bounds info from TNLP.\n");
             }
@@ -147,7 +174,7 @@ namespace Ipopt {
                                       problem_info_.z_U_init.data(),
                                       problem_info_.m, problem_info_.has_initial_lambda,
                                       problem_info_.lambda_init.data())) {
-            if (jnlst_) {
+            if (!IsNull(jnlst_)) {
                jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
                              "CONOPT Shim: Failed to get starting point from TNLP.\n");
             }
@@ -160,7 +187,7 @@ namespace Ipopt {
                                  problem_info_.m, problem_info_.nnz_jac_g,
                                  problem_info_.jac_g_iRow.data(),
                                  problem_info_.jac_g_jCol.data(), nullptr)) {
-               if (jnlst_) {
+               if (!IsNull(jnlst_)) {
                   jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
                                 "CONOPT Shim: Failed to get Jacobian structure from TNLP.\n");
                }
@@ -174,7 +201,7 @@ namespace Ipopt {
                              problem_info_.m, problem_info_.lambda_init.data(), true,
                              problem_info_.nnz_h_lag, problem_info_.hess_iRow.data(),
                              problem_info_.hess_jCol.data(), nullptr)) {
-               if (jnlst_) {
+               if (!IsNull(jnlst_)) {
                   jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
                                 "CONOPT Shim: Failed to get Hessian structure from TNLP.\n");
                }
@@ -184,18 +211,19 @@ namespace Ipopt {
 
          // 6. Get optional information (these may not be implemented by all TNLPs)
 
-         // Variable linearity
-         if (tnlp->get_variables_linearity(problem_info_.n, problem_info_.var_linearity.data())) {
-            problem_info_.has_variable_linearity = true;
-         }
-
-         // Constraint linearity
-         if (tnlp->get_constraints_linearity(problem_info_.m, problem_info_.const_linearity.data())) {
-            problem_info_.has_constraint_linearity = true;
+         // Variable linearity - populate with dummy data since we don't use it
+         if (problem_info_.n > 0) {
+            std::vector<TNLP::LinearityType> var_linearity(problem_info_.n);
+            tnlp->get_variables_linearity(problem_info_.n, var_linearity.data());
+            // Fill with dummy data
+            for (Index i = 0; i < problem_info_.n; ++i) {
+               problem_info_.var_linearity[i] = NONLINEAR; // Default to non-linear
+            }
          }
 
          // Number of nonlinear variables
-         if (tnlp->get_number_of_nonlinear_variables(problem_info_.num_nonlin_vars)) {
+         problem_info_.num_nonlin_vars = tnlp->get_number_of_nonlinear_variables();
+         if (problem_info_.num_nonlin_vars > 0) {
             problem_info_.has_nonlinear_vars = true;
          }
 
@@ -204,14 +232,14 @@ namespace Ipopt {
 
          // Verify we have complete information
          if (!problem_info_.is_complete()) {
-            if (jnlst_) {
+            if (!IsNull(jnlst_)) {
                jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
                              "CONOPT Shim: Incomplete problem information retrieved.\n");
             }
             return Invalid_Problem_Definition;
          }
 
-         if (jnlst_) {
+         if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
                           "CONOPT Shim: Problem info retrieved and constraints split successfully.\n%s",
                           problem_info_.to_string().c_str());
@@ -225,7 +253,7 @@ namespace Ipopt {
        * This is where we wire everything together.
        */
       ApplicationReturnStatus OptimizeTNLP(SmartPtr<TNLP> tnlp) {
-         if (!cntvect_ || !tnlp || !jnlst_ || !stats_) {
+         if (!cntvect_ || IsNull(tnlp) || IsNull(jnlst_) || IsNull(stats_)) {
             return Invalid_Problem_Definition;
          }
 
@@ -236,14 +264,14 @@ namespace Ipopt {
          }
 
          // Start timing
-         if (stats_) {
+         if (!IsNull(stats_)) {
             stats_->StartTiming();
          }
 
          // --- Prepare the context cookie ---
-         context_.tnlp_ = tnlp.get();
-         context_.journalist_ = jnlst_.get();
-         context_.stats_ = stats_.get();
+         context_.tnlp_ = GetRawPtr(tnlp);
+         context_.journalist_ = GetRawPtr(jnlst_);
+         context_.stats_ = GetRawPtr(stats_);
          context_.problem_info_ = &problem_info_; // Add problem info to context
 
         // --- Initialize FDEval cache ---
@@ -283,7 +311,7 @@ namespace Ipopt {
          COI_Solve(cntvect_);
 
          // Stop timing
-         if (stats_) {
+         if (!IsNull(stats_)) {
             stats_->StopTiming();
          }
 
@@ -306,7 +334,7 @@ namespace Ipopt {
          }
 
          // Return the solve status from the statistics
-         if (stats_) {
+         if (!IsNull(stats_)) {
             return stats_->SolveStatus();
          }
 
@@ -320,7 +348,26 @@ namespace Ipopt {
          return stats_;
       }
 
+
+      /**
+       * @brief Get options object (stubbed for now)
+       */
+      SmartPtr<OptionsList> Options() {
+         // Return a dummy options object for now
+         static SmartPtr<OptionsList> dummy_options = new OptionsList();
+         return dummy_options;
+      }
+
       // ... (All other public IpoptApplication methods) ...
    };
+
+// Factory function
+SmartPtr<IpoptApplication> IpoptApplicationFactory();
+
+
+// Factory function implementation
+inline SmartPtr<IpoptApplication> IpoptApplicationFactory() {
+   return new IpoptApplication();
+}
 
 } // namespace Ipopt
