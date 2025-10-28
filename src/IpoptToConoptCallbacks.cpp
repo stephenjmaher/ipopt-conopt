@@ -13,6 +13,104 @@
 #include <string>
 #include <algorithm> // For std::max
 
+// Helper functions for status code conversions
+namespace {
+
+/**
+ * @brief Convert CONOPT status codes to Ipopt ApplicationReturnStatus
+ * @param modsta CONOPT model status
+ * @param solsta CONOPT solver status
+ * @return Corresponding Ipopt ApplicationReturnStatus
+ */
+Ipopt::ApplicationReturnStatus ConvertConoptToIpoptStatus(int modsta, int solsta) {
+   // Map CONOPT MODSTA (Model Status) to Ipopt ApplicationReturnStatus
+   switch (modsta) {
+      case 1:  // Optimal
+      case 15: // Solved Unique
+      case 16: // Solved
+      case 17: // Solved Singular
+         return Ipopt::Solve_Succeeded;
+      case 2:  // Locally Infeasible
+         return Ipopt::Infeasible_Problem_Detected;
+      case 3:  // Unbounded
+         return Ipopt::Diverging_Iterates;
+      case 4:  // Interrupted
+         return Ipopt::User_Requested_Stop;
+      case 5:  // Locally Solved
+         return Ipopt::Solved_To_Acceptable_Level;
+      case 6:  // Infeasible
+         return Ipopt::Infeasible_Problem_Detected;
+      case 7:  // Unbounded - No Solution
+         return Ipopt::Diverging_Iterates;
+      case 8:  // User Interrupt
+         return Ipopt::User_Requested_Stop;
+      case 9:  // Error: Setup failure
+      case 10: // Error: Solver failure
+      case 11: // Error: Internal solver error
+         return Ipopt::Internal_Error;
+      default:
+         // For unknown status codes, check SOLSTA (Solver Status)
+         switch (solsta) {
+            case 1:  // Normal completion
+               return Ipopt::Solve_Succeeded;
+            case 2:  // Iteration interrupt
+               return Ipopt::Maximum_Iterations_Exceeded;
+            case 3:  // Time limit
+               return Ipopt::Maximum_CpuTime_Exceeded;
+            case 4:  // Other interrupt
+               return Ipopt::User_Requested_Stop;
+            case 5:  // Singular
+               return Ipopt::Search_Direction_Becomes_Too_Small;
+            case 6:  // Unbounded
+               return Ipopt::Diverging_Iterates;
+            case 7:  // Infeasible
+               return Ipopt::Infeasible_Problem_Detected;
+            case 8:  // Error
+               return Ipopt::Internal_Error;
+            default:
+               return Ipopt::Internal_Error;
+         }
+   }
+}
+
+/**
+ * @brief Convert Ipopt ApplicationReturnStatus to SolverReturn
+ * @param status Ipopt ApplicationReturnStatus
+ * @return Corresponding Ipopt SolverReturn
+ */
+Ipopt::SolverReturn ConvertApplicationStatusToSolverReturn(Ipopt::ApplicationReturnStatus status) {
+   switch (status) {
+      case Ipopt::Solve_Succeeded:
+         return Ipopt::SUCCESS;
+      case Ipopt::Solved_To_Acceptable_Level:
+         return Ipopt::STOP_AT_ACCEPTABLE_POINT;
+      case Ipopt::Infeasible_Problem_Detected:
+         return Ipopt::LOCAL_INFEASIBILITY;
+      case Ipopt::Search_Direction_Becomes_Too_Small:
+         return Ipopt::STOP_AT_TINY_STEP;
+      case Ipopt::Diverging_Iterates:
+         return Ipopt::DIVERGING_ITERATES;
+      case Ipopt::User_Requested_Stop:
+         return Ipopt::USER_REQUESTED_STOP;
+      case Ipopt::Feasible_Point_Found:
+         return Ipopt::FEASIBLE_POINT_FOUND;
+      case Ipopt::Maximum_Iterations_Exceeded:
+         return Ipopt::MAXITER_EXCEEDED;
+      case Ipopt::Maximum_CpuTime_Exceeded:
+         return Ipopt::CPUTIME_EXCEEDED;
+      case Ipopt::Error_In_Step_Computation:
+         return Ipopt::ERROR_IN_STEP_COMPUTATION;
+      case Ipopt::Invalid_Number_Detected:
+         return Ipopt::INVALID_NUMBER_DETECTED;
+      case Ipopt::Internal_Error:
+         return Ipopt::INTERNAL_ERROR;
+      default:
+         return Ipopt::INTERNAL_ERROR;
+   }
+}
+
+} // anonymous namespace
+
 // Helper to get the context struct from the cookie
 static inline IpoptConoptContext* GetContext(void *USRMEM) {
    assert(USRMEM != nullptr);
@@ -151,113 +249,14 @@ bool CallFinalizeSolutionWithCachedData(IpoptConoptContext* context) {
    }
 
    // Translate CONOPT status codes to Ipopt ApplicationReturnStatus
-   Ipopt::ApplicationReturnStatus status;
-
-   // Map CONOPT MODSTA (Model Status) to Ipopt ApplicationReturnStatus
-   switch (status_sol->conopt_modsta_) {
-      case 1:  // Optimal
-      case 15: // Solved Unique
-      case 16: // Solved
-      case 17: // Solved Singular
-         status = Ipopt::Solve_Succeeded;
-         break;
-      case 2:  // Locally optimal
-         status = Ipopt::Solved_To_Acceptable_Level;
-         break;
-      case 3:  // Unbounded
-         status = Ipopt::Diverging_Iterates;
-         break;
-      case 4:  // Infeasible
-      case 5:  // Locally infeasible
-      case 6:  // Intermediate infeasible
-         status = Ipopt::Infeasible_Problem_Detected;
-         break;
-      case 7:  // Intermediate non-optimal
-         status = Ipopt::Solved_To_Acceptable_Level;
-         break;
-      case 12: // Unknown type of error
-         status = Ipopt::Internal_Error;
-         break;
-      case 13: // Error no solution
-         status = Ipopt::Error_In_Step_Computation;
-         break;
-      default:
-         // For unknown status codes, check SOLSTA (Solver Status)
-         switch (status_sol->conopt_solsta_) {
-            case 1:  // Normal completion
-               status = Ipopt::Solve_Succeeded;
-               break;
-            case 2:  // Iteration interrupt
-               status = Ipopt::Maximum_Iterations_Exceeded;
-               break;
-            case 3:  // Resource interrupt
-               status = Ipopt::Maximum_CpuTime_Exceeded;
-               break;
-            case 4:  // Terminated by solver
-               status = Ipopt::Search_Direction_Becomes_Too_Small;
-               break;
-            case 5:  // Evaluation error limit
-               status = Ipopt::Invalid_Number_Detected;
-               break;
-            case 8:  // User Interrupt
-               status = Ipopt::User_Requested_Stop;
-               break;
-            case 9:  // Error: Setup failure
-            case 10: // Error: Solver failure
-            case 11: // Error: Internal solver error
-               status = Ipopt::Internal_Error;
-               break;
-            default:
-               status = Ipopt::Internal_Error;
-               break;
-         }
-         break;
-   }
+   Ipopt::ApplicationReturnStatus status = ConvertConoptToIpoptStatus(
+      status_sol->conopt_modsta_,
+      status_sol->conopt_solsta_
+   );
 
    try {
       // Convert ApplicationReturnStatus to SolverReturn
-      Ipopt::SolverReturn solver_status;
-      switch (status) {
-         case Ipopt::Solve_Succeeded:
-            solver_status = Ipopt::SUCCESS;
-            break;
-         case Ipopt::Solved_To_Acceptable_Level:
-            solver_status = Ipopt::STOP_AT_ACCEPTABLE_POINT;
-            break;
-         case Ipopt::Infeasible_Problem_Detected:
-            solver_status = Ipopt::LOCAL_INFEASIBILITY;
-            break;
-         case Ipopt::Search_Direction_Becomes_Too_Small:
-            solver_status = Ipopt::STOP_AT_TINY_STEP;
-            break;
-         case Ipopt::Diverging_Iterates:
-            solver_status = Ipopt::DIVERGING_ITERATES;
-            break;
-         case Ipopt::User_Requested_Stop:
-            solver_status = Ipopt::USER_REQUESTED_STOP;
-            break;
-         case Ipopt::Feasible_Point_Found:
-            solver_status = Ipopt::FEASIBLE_POINT_FOUND;
-            break;
-         case Ipopt::Maximum_Iterations_Exceeded:
-            solver_status = Ipopt::MAXITER_EXCEEDED;
-            break;
-         case Ipopt::Maximum_CpuTime_Exceeded:
-            solver_status = Ipopt::CPUTIME_EXCEEDED;
-            break;
-         case Ipopt::Error_In_Step_Computation:
-            solver_status = Ipopt::ERROR_IN_STEP_COMPUTATION;
-            break;
-         case Ipopt::Invalid_Number_Detected:
-            solver_status = Ipopt::INVALID_NUMBER_DETECTED;
-            break;
-         case Ipopt::Internal_Error:
-            solver_status = Ipopt::INTERNAL_ERROR;
-            break;
-         default:
-            solver_status = Ipopt::INTERNAL_ERROR;
-            break;
-      }
+      Ipopt::SolverReturn solver_status = ConvertApplicationStatusToSolverReturn(status);
 
       // Call finalize_solution with the cached data
       context->tnlp_->finalize_solution(
@@ -331,66 +330,10 @@ bool PopulateSolveStatistics(IpoptConoptContext* context) {
       stats->SetFinalScaledObjective(status_sol->conopt_objval_); // Assume no scaling for now
 
       // Translate CONOPT status to Ipopt solve status
-      Ipopt::ApplicationReturnStatus solve_status;
-      switch (status_sol->conopt_modsta_) {
-         case 1:  // Optimal
-         case 15: // Solved Unique
-         case 16: // Solved
-         case 17: // Solved Singular
-            solve_status = Ipopt::Solve_Succeeded;
-            break;
-         case 2:  // Locally optimal
-            solve_status = Ipopt::Solved_To_Acceptable_Level;
-            break;
-         case 3:  // Unbounded
-            solve_status = Ipopt::Diverging_Iterates;
-            break;
-         case 4:  // Infeasible
-         case 5:  // Locally infeasible
-         case 6:  // Intermediate infeasible
-            solve_status = Ipopt::Infeasible_Problem_Detected;
-            break;
-         case 7:  // Intermediate non-optimal
-            solve_status = Ipopt::Solved_To_Acceptable_Level;
-            break;
-         case 12: // Unknown type of error
-            solve_status = Ipopt::Internal_Error;
-            break;
-         case 13: // Error no solution
-            solve_status = Ipopt::Error_In_Step_Computation;
-            break;
-         default:
-            // Check SOLSTA for additional status information
-            switch (status_sol->conopt_solsta_) {
-               case 1:  // Normal completion
-                  solve_status = Ipopt::Solve_Succeeded;
-                  break;
-               case 2:  // Iteration interrupt
-                  solve_status = Ipopt::Maximum_Iterations_Exceeded;
-                  break;
-               case 3:  // Resource interrupt
-                  solve_status = Ipopt::Maximum_CpuTime_Exceeded;
-                  break;
-               case 4:  // Terminated by solver
-                  solve_status = Ipopt::Search_Direction_Becomes_Too_Small;
-                  break;
-               case 5:  // Evaluation error limit
-                  solve_status = Ipopt::Invalid_Number_Detected;
-                  break;
-               case 8:  // User Interrupt
-                  solve_status = Ipopt::User_Requested_Stop;
-                  break;
-               case 9:  // Error: Setup failure
-               case 10: // Error: Solver failure
-               case 11: // Error: Internal solver error
-                  solve_status = Ipopt::Internal_Error;
-                  break;
-               default:
-                  solve_status = Ipopt::Internal_Error;
-                  break;
-            }
-            break;
-      }
+      Ipopt::ApplicationReturnStatus solve_status = ConvertConoptToIpoptStatus(
+         status_sol->conopt_modsta_,
+         status_sol->conopt_solsta_
+      );
       stats->SetSolveStatus(solve_status);
 
       // Set convergence information
