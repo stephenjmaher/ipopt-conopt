@@ -1059,29 +1059,48 @@ int COI_CALLCONV Conopt_Solution(const double XVAL[], const double XMAR[], const
 int COI_CALLCONV Conopt_Message(int SMSG, int DMSG, int NMSG, char *MSGV[], void *USRMEM)
 {
    Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
-   if (!jnlst) return 0; // Or handle error
+   if (!jnlst) return 0;
 
-   // Determine the Ipopt print level - requires mapping CONOPT levels (SMSG, DMSG, NMSG?)
-   // to Ipopt::EJournalLevel. Let's make a simple guess for now.
-   Ipopt::EJournalLevel level = Ipopt::J_ITERSUMMARY; // Default level
+   // Process messages for each stream according to CONOPT documentation:
+   // SMSG lines -> Screen file (immediate display, progress updates)
+   // NMSG lines -> Status file (summary for solution status)
+   // DMSG lines -> Documentation file (detailed iteration log and debugging)
 
-   // Determine the category
-   Ipopt::EJournalCategory category = Ipopt::J_MAIN; // Default category
+   // Process Screen file messages (SMSG lines) - immediate display
+   for (int i = 0; i < SMSG && MSGV[i] != nullptr; ++i) {
+      std::string msg = MSGV[i];
+      // Strip trailing newlines
+      while (!msg.empty() && (msg.back() == '\n' || msg.back() == '\r')) {
+          msg.pop_back();
+      }
+      // Screen messages are for immediate display - use SUMMARY level
+      jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN, "CONOPT: %s\n", msg.c_str());
+   }
 
-   int max_msg = std::max({SMSG, DMSG, NMSG}); // Assuming these are counts? Or levels?
-   for (int i = 0; i < max_msg && MSGV[i] != nullptr; ++i) {
-      // Use Journalist's Printf. It handles checking the print level internally.
-      // Need to strip trailing newlines if CONOPT adds them, as Printf might add its own.
+   // Process Status file messages (NMSG lines) - solution summary
+   for (int i = 0; i < NMSG && MSGV[i] != nullptr; ++i) {
       std::string msg = MSGV[i];
       while (!msg.empty() && (msg.back() == '\n' || msg.back() == '\r')) {
           msg.pop_back();
       }
-      jnlst->Printf(level, category, "CONOPT: %s\n", msg.c_str());
+      // Status messages are summaries - use SUMMARY level with SOLUTION category
+      jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_SOLUTION, "CONOPT Status: %s\n", msg.c_str());
    }
-   // Flush the buffer if needed (might depend on CONOPT's message frequency)
-   // jnlst->FlushBuffer();
 
-   return 0; // Indicate success
+   // Process Documentation file messages (DMSG lines) - detailed debugging
+   for (int i = 0; i < DMSG && MSGV[i] != nullptr; ++i) {
+      std::string msg = MSGV[i];
+      while (!msg.empty() && (msg.back() == '\n' || msg.back() == '\r')) {
+          msg.pop_back();
+      }
+      // Documentation messages are detailed - use DETAILED level with NLP category
+      jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP, "CONOPT Debug: %s\n", msg.c_str());
+   }
+
+   // Flush buffer to ensure messages are displayed immediately
+   jnlst->FlushBuffer();
+
+   return 0; // Success
 }
 
 
@@ -1090,20 +1109,55 @@ int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char *MSG,
    Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
    if (!jnlst) return 0;
 
-   // Errors should likely go to a high print level
-   Ipopt::EJournalLevel level = Ipopt::J_ERROR;
-   Ipopt::EJournalCategory category = Ipopt::J_MAIN; // Or maybe J_NLP
-
+   // Clean up the message
    std::string msg = MSG;
    while (!msg.empty() && (msg.back() == '\n' || msg.back() == '\r')) {
        msg.pop_back();
    }
 
-   jnlst->Printf(level, category, "CONOPT Error (Row %d, Col %d, Pos %d): %s\n",
-                 ROWNO, COLNO, POSNO, msg.c_str());
-   // jnlst->FlushBuffer();
+   // Determine error category and level based on the type of error
+   Ipopt::EJournalLevel level = Ipopt::J_ERROR;
+   Ipopt::EJournalCategory category = Ipopt::J_NLP; // Default to NLP category for model-specific errors
 
-   return 0; // Indicate success
+   // Handle special cases for Base=0 (C conventions) as per CONOPT documentation:
+   // COLNO = -1: message about a row (ROWNO between 0 and NumCon-1)
+   // ROWNO = -1: message about a column (COLNO between 0 and NumVar-1)
+   // ROWNO and COLNO both non-negative: message about Jacobian element or (row,column)-pair
+
+   if (COLNO == -1) {
+      // Message about a row
+      if (ROWNO >= 0) {
+         jnlst->Printf(level, category, "CONOPT Row Error (Row %d): %s\n", ROWNO, msg.c_str());
+      } else {
+         jnlst->Printf(level, category, "CONOPT Row Error: %s\n", msg.c_str());
+      }
+   } else if (ROWNO == -1) {
+      // Message about a column
+      if (COLNO >= 0) {
+         jnlst->Printf(level, category, "CONOPT Column Error (Col %d): %s\n", COLNO, msg.c_str());
+      } else {
+         jnlst->Printf(level, category, "CONOPT Column Error: %s\n", msg.c_str());
+      }
+   } else if (ROWNO >= 0 && COLNO >= 0) {
+      // Message about Jacobian element or (row,column)-pair
+      if (POSNO >= 0) {
+         // Specific Jacobian element
+         jnlst->Printf(level, category, "CONOPT Jacobian Error (Row %d, Col %d, Pos %d): %s\n",
+                       ROWNO, COLNO, POSNO, msg.c_str());
+      } else {
+         // (row,column)-pair
+         jnlst->Printf(level, category, "CONOPT Matrix Error (Row %d, Col %d): %s\n",
+                       ROWNO, COLNO, msg.c_str());
+      }
+   } else {
+      // General error message
+      jnlst->Printf(level, category, "CONOPT Error: %s\n", msg.c_str());
+   }
+
+   // Flush buffer to ensure error messages are displayed immediately
+   jnlst->FlushBuffer();
+
+   return 0; // Success
 }
 
 
