@@ -5,39 +5,39 @@
 #ifndef IPOPT_TO_CONOPT_CALLBACKS_HPP
 #define IPOPT_TO_CONOPT_CALLBACKS_HPP
 
-#include "conopt.h"  // For COI_CALLCONV and C-API types
+#include "conopt.h" /*  For COI_CALLCONV and C-API types */
 #include <vector>
 
-// Forward declare Ipopt classes needed by the struct
+/*  Forward declare Ipopt classes needed by the struct */
 namespace Ipopt {
 class TNLP;
 class Journalist;
 class SolveStatistics;
 struct IpoptProblemInfo;
-}  // namespace Ipopt
+} /*  namespace Ipopt */
 
 /**
  * @brief Struct to hold cached status and solution data from CONOPT callbacks.
  * This stores the status information and solution values for later use in finalize_solution.
  */
 struct ConoptStatusSolution {
-   // Status information
-   bool status_cached_;    // Whether status has been cached
-   int conopt_modsta_;     // CONOPT model status
-   int conopt_solsta_;     // CONOPT solver status
-   int conopt_iter_;       // CONOPT iteration count
-   double conopt_objval_;  // CONOPT objective value
+   /*  Status information */
+   bool status_cached_;   /*  Whether status has been cached */
+   int conopt_modsta_;    /*  CONOPT model status */
+   int conopt_solsta_;    /*  CONOPT solver status */
+   int conopt_iter_;      /*  CONOPT iteration count */
+   double conopt_objval_; /*  CONOPT objective value */
 
-   // Solution data
-   bool solution_cached_;             // Whether solution has been cached
-   std::vector<double> x_solution_;   // Final variable values
-   std::vector<double> x_marginals_;  // Variable marginals (z_L/z_U)
-   std::vector<int> x_basis_;         // Variable basis indicators
-   std::vector<int> x_status_;        // Variable status indicators
-   std::vector<double> y_solution_;   // Final constraint values
-   std::vector<double> y_marginals_;  // Constraint marginals (lambda)
-   std::vector<int> y_basis_;         // Constraint basis indicators
-   std::vector<int> y_status_;        // Constraint status indicators
+   /*  Solution data */
+   bool solution_cached_;            /*  Whether solution has been cached */
+   std::vector<double> x_solution_;  /*  Final variable values */
+   std::vector<double> x_marginals_; /*  Variable marginals (z_L/z_U) */
+   std::vector<int> x_basis_;        /*  Variable basis indicators */
+   std::vector<int> x_status_;       /*  Variable status indicators */
+   std::vector<double> y_solution_;  /*  Final constraint values */
+   std::vector<double> y_marginals_; /*  Constraint marginals (lambda) */
+   std::vector<int> y_basis_;        /*  Constraint basis indicators */
+   std::vector<int> y_status_;       /*  Constraint status indicators */
 
    /**
     * @brief Constructor for ConoptStatusSolution
@@ -72,17 +72,17 @@ struct ConoptStatusSolution {
  * This stores the results of constraint evaluations and jacobian with constant lookup time.
  */
 struct FDEvalCache {
-   std::vector<double> constraint_values_;   // Cached constraint values (size = numcons)
-   double objective_value_;                  // Cached objective value
-   bool objective_valid_;                    // Whether objective value is valid
-   std::vector<double> objective_gradient_;  // Cached objective gradient (size = n)
-   bool objective_gradient_valid_;           // Whether objective gradient is valid
-   std::vector<double> jacobian_values_;     // Cached jacobian values (size = nnz_jac_g)
-   std::vector<bool> jacobian_valid_;        // Validity flags for jacobian entries
-   bool jacobian_cached_;                    // Whether jacobian has been cached
-   int num_constraints_;                     // Number of constraints (for bounds checking)
-   int nnz_jacobian_;                        // Number of non-zero jacobian entries
-   int num_variables_;                       // Number of variables (for objective gradient)
+   std::vector<double> constraint_values_;  /*  Cached constraint values (size = numcons) */
+   double objective_value_;                 /*  Cached objective value */
+   bool objective_valid_;                   /*  Whether objective value is valid */
+   std::vector<double> objective_gradient_; /*  Cached objective gradient (size = n) */
+   bool objective_gradient_valid_;          /*  Whether objective gradient is valid */
+   std::vector<double> jacobian_values_;    /*  Cached jacobian values (size = nnz_jac_g) */
+   std::vector<bool> jacobian_valid_;       /*  Validity flags for jacobian entries */
+   bool jacobian_cached_;                   /*  Whether jacobian has been cached */
+   int num_constraints_;                    /*  Number of constraints (for bounds checking) */
+   int nnz_jacobian_;                       /*  Number of non-zero jacobian entries */
+   int num_variables_;                      /*  Number of variables (for objective gradient) */
 
    /**
     * @brief Constructor for FDEvalCache
@@ -100,7 +100,7 @@ struct FDEvalCache {
       jacobian_valid_.resize(nnz_jacobian, false);
    }
 
-   // No invalidation needed: all cache entries are overwritten when used
+   /*  No invalidation needed: all cache entries are overwritten when used */
 
    /**
     * @brief Cache jacobian values
@@ -185,8 +185,8 @@ typedef struct {
    Ipopt::Journalist* journalist_;
    Ipopt::SolveStatistics* stats_;
    Ipopt::IpoptProblemInfo* problem_info_;
-   FDEvalCache* fdeval_cache_;              // Cache for FDEvalIni optimization
-   ConoptStatusSolution* status_solution_;  // Cache for status and solution data
+   FDEvalCache* fdeval_cache_;             /*  Cache for FDEvalIni optimization */
+   ConoptStatusSolution* status_solution_; /*  Cache for status and solution data */
 } IpoptConoptContext;
 
 /**
@@ -295,17 +295,17 @@ int COI_CALLCONV Conopt_Message(int SMSG, int DMSG, int NMSG, char* MSGV[], void
 
 int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char* MSG, void* USRMEM);
 
-// Hessian of the Lagrangian structure and values
+/*  Hessian of the Lagrangian structure and values */
 int COI_CALLCONV Conopt_2DLagrStr(
       int HSRW[], int HSCL[], int* NODRV, int NUMVAR, int NUMCON, int NHESS, void* USRMEM);
 
 int COI_CALLCONV Conopt_2DLagrVal(const double X[], const double U[], const int HSRW[],
       const int HSCL[], double HSVL[], int* NODRV, int NUMVAR, int NUMCON, int NHESS, void* USRMEM);
 
-// ... and so on for all other callbacks (Progress, Option, TriOrd, SDDir, etc.) ...
+/*  ... and so on for all other callbacks (Progress, Option, TriOrd, SDDir, etc.) ... */
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif  // IPOPT_TO_CONOPT_CALLBACKS_HPP
+#endif /*  IPOPT_TO_CONOPT_CALLBACKS_HPP */
