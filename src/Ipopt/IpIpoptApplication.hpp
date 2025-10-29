@@ -422,6 +422,7 @@ namespace Ipopt {
 
         assert(problem_info_.objective_row_index >= 0);
         COI_ERROR += COIDEF_ObjCon(cntvect_, problem_info_.objective_row_index);
+        COI_ERROR += COIDEF_OptDir(cntvect_, -1);
 
         // Set output control
         COI_ERROR += COIDEF_StdOut(cntvect_, 1);
