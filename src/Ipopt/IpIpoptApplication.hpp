@@ -220,6 +220,8 @@ namespace Ipopt {
                }
                return Invalid_Problem_Definition;
             }
+            // Compute CONOPT ordering permutation once here
+            problem_info_.compute_hessian_permutation();
          }
 
          // 6. Get optional information (these may not be implemented by all TNLPs)
@@ -307,8 +309,15 @@ namespace Ipopt {
          COI_ERROR += COIDEF_Message(cntvect_, Conopt_Message);
          COI_ERROR += COIDEF_ErrMsg(cntvect_, Conopt_ErrMsg);
 
-         // Optional Callbacks
-         COI_ERROR += COIDEF_FDEvalIni(cntvect_, Conopt_FDEvalIni);
+        // Optional Callbacks
+        COI_ERROR += COIDEF_FDEvalIni(cntvect_, Conopt_FDEvalIni);
+
+        // Hessian of Lagrangian callbacks
+        // these are only used if the hessian structure is provided.
+        if (problem_info_.nnz_h_lag > 0) {
+           COI_ERROR += COIDEF_2DLagrStr(cntvect_, Conopt_2DLagrStr);
+           COI_ERROR += COIDEF_2DLagrVal(cntvect_, Conopt_2DLagrVal);
+        }
 
          // Check for callback registration errors
          if (COI_ERROR != 0) {

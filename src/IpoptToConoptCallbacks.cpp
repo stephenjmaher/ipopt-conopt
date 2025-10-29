@@ -12,6 +12,7 @@
 #include <vector>
 #include <string>
 #include <algorithm> // For std::max
+#include <cstring>
 
 // Helper functions for status code conversions
 namespace {
@@ -877,6 +878,154 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
    }
 
    return 0; // Success
+}
+
+// === Hessian of Lagrangian: Structure ===
+int COI_CALLCONV Conopt_2DLagrStr(int HSRW[], int HSCL[], int *NODRV,
+   int NUMVAR, int NUMCON, int NHESS, void *USRMEM)
+{
+   IpoptConoptContext* context = GetContext(USRMEM);
+   Ipopt::IpoptProblemInfo* problem_info = context->problem_info_;
+   Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
+
+   if (!problem_info) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                      "CONOPT Shim Error: Problem info is NULL in 2DLagrStr.\n");
+      }
+      return 1;
+   }
+
+   // Basic consistency check
+   if (NHESS != problem_info->nnz_h_lag) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                      "CONOPT Shim Error: NHESS mismatch in 2DLagrStr. Expected %d, got %d.\n",
+                      problem_info->nnz_h_lag, NHESS);
+      }
+      return 1;
+   }
+
+   // Fill row/col indices in sorted order using precomputed permutation
+   const Ipopt::Index nnz = problem_info->nnz_h_lag;
+   const auto& perm = problem_info->hess_perm_sorted_to_orig;
+   for (Ipopt::Index k = 0; k < nnz; ++k) {
+      Ipopt::Index orig = perm[k];
+      HSRW[k] = static_cast<int>(problem_info->hess_iRow[orig]);
+      HSCL[k] = static_cast<int>(problem_info->hess_jCol[orig]);
+   }
+
+   if (NODRV) {
+      // 0 indicates that we can compute all second derivatives
+      *NODRV = 0;
+   }
+
+   if (jnlst) {
+      jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
+                   "CONOPT Shim: 2DLagrStr populated (NHESS=%d).\n", NHESS);
+   }
+
+   return 0;
+}
+
+// === Hessian of Lagrangian: Values ===
+int COI_CALLCONV Conopt_2DLagrVal(const double X[], const double U[],
+   const int HSRW[], const int HSCL[], double HSVL[], int *NODRV,
+   int NUMVAR, int NUMCON, int NHESS, void *USRMEM)
+{
+   IpoptConoptContext* context = GetContext(USRMEM);
+   Ipopt::TNLP* tnlp = context->tnlp_;
+   Ipopt::IpoptProblemInfo* problem_info = context->problem_info_;
+   Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
+
+   if (!tnlp || !problem_info) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                      "CONOPT Shim Error: TNLP or ProblemInfo is NULL in 2DLagrVal.\n");
+      }
+      return 1;
+   }
+
+   // Sanity checks
+   if (NUMVAR != problem_info->n || NUMCON != problem_info->m_split || NHESS != problem_info->nnz_h_lag) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                      "CONOPT Shim Error: Dimension mismatch in 2DLagrVal (n=%d/%d, m_split=%d/%d, nnz_h=%d/%d).\n",
+                      NUMVAR, problem_info->n, NUMCON, problem_info->m_split, NHESS, problem_info->nnz_h_lag);
+      }
+      return 1;
+   }
+
+   // Build obj_factor from the multiplier of the objective pseudo-row
+   Ipopt::Number obj_factor = 0.0;
+   if (problem_info->objective_row_index >= 0 && problem_info->objective_row_index < NUMCON) {
+      obj_factor = U[problem_info->objective_row_index];
+   }
+
+   // Aggregate split-row multipliers into original constraint multipliers for TNLP
+   std::vector<Ipopt::Number> lambda(problem_info->m, 0.0);
+   for (Ipopt::Index split_row = 0; split_row < problem_info->m_split; ++split_row) {
+      if (split_row == problem_info->objective_row_index) continue; // skip objective row
+      int orig_idx = problem_info->original_constraint_map[split_row];
+      if (orig_idx >= 0 && orig_idx < problem_info->m) {
+         // Both parts of a RANGE add to the same original constraint Hessian contribution
+         lambda[orig_idx] += U[split_row];
+      }
+   }
+
+   // Request Hessian values from TNLP at X with obj_factor and aggregated lambda
+   // Values are expected in the same order as the structure we stored in problem_info_
+   std::vector<Ipopt::Number> values(problem_info->nnz_h_lag);
+   bool ok = false;
+   try {
+      ok = tnlp->eval_h(problem_info->n, X, true, obj_factor,
+                        problem_info->m, lambda.data(), true,
+                        problem_info->nnz_h_lag,
+                        nullptr, nullptr, values.data());
+      if (ok && GetContext(USRMEM)->stats_) {
+         GetContext(USRMEM)->stats_->IncrementHessianEvaluations();
+      }
+   } catch (const std::exception& e) {
+      if (jnlst) jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
+                               "CONOPT Shim: Exception in TNLP::eval_h: %s\n", e.what());
+      return 1;
+   } catch (...) {
+      if (jnlst) jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
+                               "CONOPT Shim: Unknown exception in TNLP::eval_h.\n");
+      return 1;
+   }
+
+   if (!ok) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP,
+                      "CONOPT Shim: TNLP::eval_h returned false in 2DLagrVal.\n");
+      }
+      return 1; // treat as critical for CONOPT
+   }
+
+   // Copy values into HSVL according to the sorted order recorded in 2DLagrStr
+   if (problem_info->hess_perm_sorted_to_orig.size() == static_cast<size_t>(problem_info->nnz_h_lag)) {
+      for (Ipopt::Index k = 0; k < problem_info->nnz_h_lag; ++k) {
+         Ipopt::Index orig = problem_info->hess_perm_sorted_to_orig[k];
+         HSVL[k] = values[orig];
+      }
+   } else {
+      // Fallback: no permutation recorded, copy in original order
+      for (Ipopt::Index k = 0; k < problem_info->nnz_h_lag; ++k) {
+         HSVL[k] = values[k];
+      }
+   }
+
+   if (NODRV) {
+      *NODRV = 0;
+   }
+
+   if (jnlst) {
+      jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
+                   "CONOPT Shim: 2DLagrVal computed Hessian values (NHESS=%d).\n", NHESS);
+   }
+
+   return 0;
 }
 
 

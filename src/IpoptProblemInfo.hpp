@@ -11,6 +11,7 @@
 
 #include <vector>
 #include <string>
+#include <algorithm>
 #include "IpoptTypes.hpp"
 
 namespace Ipopt {
@@ -92,6 +93,9 @@ namespace Ipopt {
         std::vector<Index> hess_iRow;      // Hessian row indices (length nnz_h_lag)
         std::vector<Index> hess_jCol;      // Hessian column indices (length nnz_h_lag)
         std::vector<Number> hess_values;   // Hessian values (length nnz_h_lag)
+        // Permutation mapping to enforce CONOPT ordering (sorted by column then row)
+        // Maps sorted index -> original TNLP index
+        std::vector<Index> hess_perm_sorted_to_orig;
 
         // === Problem Metadata ===
         bool init_x_req;                   // Whether initial x values is required from the user
@@ -136,6 +140,26 @@ namespace Ipopt {
             hess_iRow.resize(nnz_h_lag);
             hess_jCol.resize(nnz_h_lag);
             hess_values.resize(nnz_h_lag);
+        }
+
+        /**
+         * @brief Compute and store permutation to enforce CONOPT-required Hessian ordering.
+         * Sorts entries by column (non-decreasing) then row (increasing within same column).
+         */
+        void compute_hessian_permutation() {
+            const Index nnz = nnz_h_lag;
+            hess_perm_sorted_to_orig.clear();
+            hess_perm_sorted_to_orig.reserve(nnz);
+            for (Index k = 0; k < nnz; ++k) hess_perm_sorted_to_orig.push_back(k);
+            std::stable_sort(hess_perm_sorted_to_orig.begin(), hess_perm_sorted_to_orig.end(),
+                             [&](Index a, Index b){
+                                 Index ca = hess_jCol[a];
+                                 Index cb = hess_jCol[b];
+                                 if (ca != cb) return ca < cb;
+                                 Index ra = hess_iRow[a];
+                                 Index rb = hess_iRow[b];
+                                 return ra < rb;
+                             });
         }
 
         /**
@@ -411,6 +435,7 @@ namespace Ipopt {
             hess_iRow.clear();
             hess_jCol.clear();
             hess_values.clear();
+            hess_perm_sorted_to_orig.clear();
 
             // Clear split constraint mapping data
             original_constraint_map.clear();

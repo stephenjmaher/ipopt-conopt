@@ -303,6 +303,14 @@ int COI_CALLCONV Conopt_Message(int SMSG, int DMSG, int NMSG, char *MSGV[], void
 
 int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char *MSG, void *USRMEM);
 
+// Hessian of the Lagrangian structure and values
+int COI_CALLCONV Conopt_2DLagrStr(int HSRW[], int HSCL[], int *NODRV,
+   int NUMVAR, int NUMCON, int NHESS, void *USRMEM);
+
+int COI_CALLCONV Conopt_2DLagrVal(const double X[], const double U[],
+   const int HSRW[], const int HSCL[], double HSVL[], int *NODRV,
+   int NUMVAR, int NUMCON, int NHESS, void *USRMEM);
+
 // ... and so on for all other callbacks (Progress, Option, TriOrd, SDDir, etc.) ...
 
 #ifdef __cplusplus
