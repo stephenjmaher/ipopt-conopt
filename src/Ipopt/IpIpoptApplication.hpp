@@ -19,6 +19,7 @@
 // 3. INCLUDE OUR NEW TRAMPOLINE DECLARATIONS
 #include "IpoptToConoptCallbacks.hpp"
 #include "IpoptProblemInfo.hpp"
+#include <cassert>
 #include <vector>
 #include <string>
 
@@ -84,6 +85,12 @@ namespace Ipopt {
       {
          COI_Create(&cntvect_);
          stats_ = new SolveStatistics(); // <-- Create the SolveStatistics object
+
+         // Set verbose output for debugging
+         if (!IsNull(jnlst_)) {
+            // Add a console journal with detailed output
+            jnlst_->AddFileJournal("console", "stdout", Ipopt::J_DETAILED);
+         }
       }
 
       // Constructor accepting journalist
@@ -96,6 +103,12 @@ namespace Ipopt {
                jnlst_ = new Journalist();
            }
            stats_ = new SolveStatistics(); // <-- Create the SolveStatistics object
+
+           // Set verbose output for debugging
+           if (!IsNull(jnlst_)) {
+               // Add a console journal with detailed output
+               jnlst_->AddFileJournal("console", "stdout", Ipopt::J_DETAILED);
+           }
       }
 
       /**
@@ -167,12 +180,12 @@ namespace Ipopt {
          }
 
          // 3. Get starting point
-         if (!tnlp->get_starting_point(problem_info_.n, problem_info_.has_initial_x,
+         if (!tnlp->get_starting_point(problem_info_.n, problem_info_.init_x_req,
                                       problem_info_.x_init.data(),
-                                      problem_info_.has_initial_z,
+                                      problem_info_.init_z_req,
                                       problem_info_.z_L_init.data(),
                                       problem_info_.z_U_init.data(),
-                                      problem_info_.m, problem_info_.has_initial_lambda,
+                                      problem_info_.m, problem_info_.init_lambda_req,
                                       problem_info_.lambda_init.data())) {
             if (!IsNull(jnlst_)) {
                jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
@@ -221,11 +234,9 @@ namespace Ipopt {
             }
          }
 
-         // Number of nonlinear variables
-         problem_info_.num_nonlin_vars = tnlp->get_number_of_nonlinear_variables();
-         if (problem_info_.num_nonlin_vars > 0) {
-            problem_info_.has_nonlinear_vars = true;
-         }
+         // Number of nonlinear variables - assume all variables are nonlinear
+         problem_info_.num_nonlin_vars = problem_info_.n;
+         problem_info_.has_nonlinear_vars = true;
 
          // 7. Split constraints for CONOPT (constraints with both bounds need to be duplicated)
          problem_info_.split_constraints();
@@ -286,29 +297,51 @@ namespace Ipopt {
          // These C functions are defined in IpoptToConoptCallbacks.cpp
          // and will call the virtual methods on the tnlp* cookie.
 
+         int COI_ERROR = 0;
+
          // Mandatory Callbacks
-         COIDEF_ReadMatrix(cntvect_, Conopt_ReadMatrix);
-         COIDEF_FDEval(cntvect_, Conopt_FDEval);
-         COIDEF_Status(cntvect_, Conopt_Status);
-         COIDEF_Solution(cntvect_, Conopt_Solution);
-         COIDEF_Message(cntvect_, Conopt_Message);
-         COIDEF_ErrMsg(cntvect_, Conopt_ErrMsg);
+         COI_ERROR += COIDEF_ReadMatrix(cntvect_, Conopt_ReadMatrix);
+         COI_ERROR += COIDEF_FDEval(cntvect_, Conopt_FDEval);
+         COI_ERROR += COIDEF_Status(cntvect_, Conopt_Status);
+         COI_ERROR += COIDEF_Solution(cntvect_, Conopt_Solution);
+         COI_ERROR += COIDEF_Message(cntvect_, Conopt_Message);
+         COI_ERROR += COIDEF_ErrMsg(cntvect_, Conopt_ErrMsg);
 
          // Optional Callbacks
-         COIDEF_FDEvalIni(cntvect_, Conopt_FDEvalIni);
-         COIDEF_FDEvalEnd(cntvect_, Conopt_FDEvalEnd);
+         COI_ERROR += COIDEF_FDEvalIni(cntvect_, Conopt_FDEvalIni);
+         COI_ERROR += COIDEF_FDEvalEnd(cntvect_, Conopt_FDEvalEnd);
+
+         // Check for callback registration errors
+         if (COI_ERROR != 0) {
+            if (!IsNull(jnlst_)) {
+               jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                            "CONOPT Shim Error: Callback registration failed with error %d\n", COI_ERROR);
+            }
+            return Internal_Error;
+         }
 
          // ... (Register all others: Progress, SDDir, etc.) ...
 
-         // --- Pass problem dimensions to CONOPT (use split dimensions) ---
-         COIDEF_NumVar(cntvect_, problem_info_.n);
-         COIDEF_NumCon(cntvect_, problem_info_.m_split);
-         COIDEF_NumNz(cntvect_, problem_info_.nnz_jac_g_split);
-         COIDEF_NumNlNz(cntvect_, problem_info_.num_nonlin_vars);
-         COIDEF_NumHess(cntvect_, problem_info_.nnz_h_lag);
+         // --- Set up CONOPT problem information ---
+         if (!SetupConoptProblem()) {
+            if (!IsNull(jnlst_)) {
+               jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                            "CONOPT Shim Error: Failed to set up CONOPT problem information.\n");
+            }
+            return Internal_Error;
+         }
 
          // --- Solve the problem ---
-         COI_Solve(cntvect_);
+         COI_ERROR = COI_Solve(cntvect_);
+
+         // Check for CONOPT solve errors
+         if (COI_ERROR != 0) {
+            if (!IsNull(jnlst_)) {
+               jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                            "CONOPT Shim Error: COI_Solve failed with error %d\n", COI_ERROR);
+            }
+            return Internal_Error;
+         }
 
          // Stop timing
          if (!IsNull(stats_)) {
@@ -356,6 +389,56 @@ namespace Ipopt {
          // Return a dummy options object for now
          static SmartPtr<OptionsList> dummy_options = new OptionsList();
          return dummy_options;
+      }
+
+      /**
+       * @brief Set up CONOPT problem information
+       * This method configures CONOPT with all the necessary problem parameters
+       * @return true if successful, false otherwise
+       */
+      bool SetupConoptProblem() {
+         if (!cntvect_) {
+            if (!IsNull(jnlst_)) {
+               jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                            "CONOPT Shim Error: CONOPT handle is NULL in SetupConoptProblem.\n");
+            }
+            return false;
+         }
+
+         // Set problem dimensions
+         int COI_ERROR = 0;
+
+         if (!IsNull(jnlst_)) {
+            jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
+                         "CONOPT Shim: Setting problem dimensions: n=%d, m_split=%d, nnz_jac_g_split=%d, nnz_h_lag=%d\n",
+                         problem_info_.n, problem_info_.m_split, problem_info_.nnz_jac_g_split,
+                         problem_info_.nnz_h_lag);
+         }
+
+        COI_ERROR += COIDEF_NumVar(cntvect_, problem_info_.n);
+        COI_ERROR += COIDEF_NumCon(cntvect_, problem_info_.m_split);
+        COI_ERROR += COIDEF_NumNz(cntvect_, problem_info_.nnz_jac_g_split);
+        COI_ERROR += COIDEF_NumNlNz(cntvect_, problem_info_.nnz_jac_g_split);
+        COI_ERROR += COIDEF_NumHess(cntvect_, problem_info_.nnz_h_lag);
+
+        assert(problem_info_.objective_row_index >= 0);
+        COI_ERROR += COIDEF_ObjCon(cntvect_, problem_info_.objective_row_index);
+
+        // Set output control
+        COI_ERROR += COIDEF_StdOut(cntvect_, 1);
+
+        COI_ERROR += COIDEF_FVforAll(cntvect_, 1);
+
+         // Check for setup errors
+         if (COI_ERROR != 0) {
+            if (!IsNull(jnlst_)) {
+               jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                            "CONOPT Shim Error: Problem setup failed with total error %d\n", COI_ERROR);
+            }
+            return false;
+         }
+
+         return true;
       }
 
       // ... (All other public IpoptApplication methods) ...

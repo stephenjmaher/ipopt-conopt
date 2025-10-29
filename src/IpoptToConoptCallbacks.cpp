@@ -481,6 +481,8 @@ int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[]
          COLSTA[j] = current_pos;
          current_pos += col_counts[j];
       }
+      // Set the last element to the total number of non-zeros
+      COLSTA[NUMVAR] = NUMNZ;
 
       // Fill ROWNO array with row indices, maintaining column order
       std::vector<Ipopt::Index> col_positions(NUMVAR, 0);
@@ -714,7 +716,10 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
 int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MODE, int LISTSIZE, int NUMTHREAD,
    int IGNERR, int *ERRCNT, int NUMVAR, void *USRMEM)
 {
-   assert(LISTSIZE > 0);
+   // if there are no rows in the ROWLIST, then we don't evaluate any constraints or objective.
+   if (LISTSIZE == 0)
+      return 0;
+
    IpoptConoptContext* context = GetContext(USRMEM);
    Ipopt::TNLP* tnlp = GetTNLP(USRMEM);
    Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
@@ -727,7 +732,6 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
       }
       return 1; // Critical error
    }
-
    // Process based on MODE: 1=function, 2=derivatives, 3=both
    bool need_function_eval = (MODE & 1);
    bool need_derivative_eval = (MODE & 2);
@@ -751,15 +755,8 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
    // Reset validity flags for all constraints
    cache->invalidateAll();
 
-   // first checking if the objective is the only row needing evaluation. It is determined later if the objective
-   // needs to be evaluated.
-   bool has_constraints = true;
-   bool has_objective = false;
-   if (LISTSIZE == 1 && ROWLIST[0] == problem_info->objective_row_index)
-   {
-      has_constraints = false;
-      has_objective = true;
-   }
+   // For robustness with CONOPT's ROWLIST, cache all rows (constraints and objective)
+   const bool has_constraints = (problem_info->m > 0);
 
    try {
       // Only evaluate functions if MODE requires it
@@ -774,62 +771,42 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
                }
                if (ERRCNT) (*ERRCNT)++;
             } else {
-               // Increment constraint evaluation count
                if (context->stats_) {
                   context->stats_->IncrementConstraintEvaluations();
                }
             }
 
-            // Store constraint values for rows in ROWLIST
-            for (int i = 0; i < LISTSIZE; ++i) {
-               int row_idx = ROWLIST[i];
-               if (row_idx == problem_info->objective_row_index) {
-                  // Skip objective for now, will handle separately. Marking that the objective needs evaluation.
-                  has_objective = true;
-                  continue;
-               } else if (row_idx >= 0 && row_idx < problem_info->m_split) {
-                  // Map CONOPT constraint index to Ipopt constraint index
-                  Ipopt::Index ipopt_constraint_idx = problem_info->original_constraint_map[row_idx];
-                  if (ipopt_constraint_idx >= 0 && ipopt_constraint_idx < problem_info->m) {
-                     cache->constraint_values_[row_idx] = all_g[ipopt_constraint_idx];
-                     cache->constraint_valid_[row_idx] = true;
-                  }
+            // Cache constraint values for ALL split rows by mapping to original constraint indices
+            for (Ipopt::Index split_row = 0; split_row < problem_info->m_split; ++split_row) {
+               Ipopt::Index orig_idx = problem_info->original_constraint_map[split_row];
+               if (orig_idx >= 0 && orig_idx < problem_info->m) {
+                  cache->constraint_values_[split_row] = all_g[orig_idx];
+                  cache->constraint_valid_[split_row] = true;
                }
             }
          }
 
-         // Evaluate objective if it's in the ROWLIST
-         if (has_objective) {
-            Ipopt::Number obj_value;
-            if (!tnlp->eval_f(problem_info->n, X, true, obj_value)) {
-               if (jnlst) {
-                  jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP,
-                               "CONOPT Shim: eval_f failed in FDEvalIni.\n");
-               }
-               if (ERRCNT) (*ERRCNT)++;
-            } else {
-               // Increment objective evaluation count
-               if (context->stats_) {
-                  context->stats_->IncrementObjectiveEvaluations();
-               }
+         // Evaluate and cache objective value unconditionally
+         Ipopt::Number obj_value;
+         if (!tnlp->eval_f(problem_info->n, X, true, obj_value)) {
+            if (jnlst) {
+               jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP,
+                            "CONOPT Shim: eval_f failed in FDEvalIni.\n");
             }
-            cache->objective_value_ = obj_value;
-            cache->objective_valid_ = true;
+            if (ERRCNT) (*ERRCNT)++;
+         } else {
+            if (context->stats_) {
+               context->stats_->IncrementObjectiveEvaluations();
+            }
          }
+         cache->objective_value_ = obj_value;
+         cache->objective_valid_ = true;
       }
 
       // Evaluate derivatives if needed (MODE 2 or 3)
       if (need_derivative_eval) {
-         // Check if objective gradient is needed
-         for (int i = 0; i < LISTSIZE; ++i) {
-            if (ROWLIST[i] == problem_info->objective_row_index) {
-               has_objective = true;
-               break;
-            }
-         }
-
-         // Evaluate objective gradient if needed
-         if (has_objective) {
+         // Evaluate objective gradient (cache regardless of ROWLIST)
+         {
             std::vector<Ipopt::Number> objective_gradient(problem_info->n);
             if (!tnlp->eval_grad_f(problem_info->n, X, true, objective_gradient.data())) {
                if (jnlst) {
@@ -870,27 +847,15 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
 
          if (jnlst) {
             jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_NLP,
-                         "CONOPT Shim: FDEvalIni cached jacobian values%s.\n",
-                         has_objective ? " and objective gradient" : "");
+                         "CONOPT Shim: FDEvalIni cached jacobian values and objective gradient.\n");
          }
       }
 
       if (jnlst) {
          if (need_function_eval) {
-            // Count how many constraint values were actually cached
-            int cached_constraints = 0;
-            bool cached_objective = false;
-            for (int i = 0; i < LISTSIZE; ++i) {
-               int row_idx = ROWLIST[i];
-               if (row_idx == problem_info->objective_row_index) {
-                  cached_objective = true;
-               } else if (row_idx >= 0 && row_idx < problem_info->m_split) {
-                  cached_constraints++;
-               }
-            }
             jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_NLP,
-                         "CONOPT Shim: FDEvalIni cached %d constraint values%s.\n",
-                         cached_constraints, cached_objective ? " and objective" : "");
+                         "CONOPT Shim: FDEvalIni cached all %d constraint values and objective.\n",
+                         (int)problem_info->m_split);
          }
          if (need_derivative_eval) {
             jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_NLP,

@@ -6,6 +6,9 @@
 #ifndef IPOPT_PROBLEM_INFO_HPP
 #define IPOPT_PROBLEM_INFO_HPP
 
+// CONOPT infinity value - used to represent unbounded constraints
+#define CONOPT_INFINITY 1e12
+
 #include <vector>
 #include <string>
 #include "IpoptTypes.hpp"
@@ -91,9 +94,9 @@ namespace Ipopt {
         std::vector<Number> hess_values;   // Hessian values (length nnz_h_lag)
 
         // === Problem Metadata ===
-        bool has_initial_x;                // Whether initial x values were provided
-        bool has_initial_z;                // Whether initial z values were provided
-        bool has_initial_lambda;           // Whether initial lambda values were provided
+        bool init_x_req;                   // Whether initial x values is required from the user
+        bool init_z_req;                   // Whether initial z values is required from the user
+        bool init_lambda_req;              // Whether initial lambda values is required from the user
         bool has_variable_linearity;       // Whether variable linearity info was provided
         bool has_constraint_linearity;     // Whether constraint linearity info was provided
         bool has_nonlinear_vars;           // Whether nonlinear variable count was provided
@@ -103,7 +106,7 @@ namespace Ipopt {
             n(0), m(0), nnz_jac_g(0), nnz_h_lag(0), index_style(C_STYLE),
             m_split(0), objective_row_index(-1), nnz_jac_g_split(0),
             num_nonlin_vars(0),
-            has_initial_x(false), has_initial_z(false), has_initial_lambda(false),
+            init_x_req(true), init_z_req(false), init_lambda_req(false),
             has_variable_linearity(false), has_constraint_linearity(false),
             has_nonlinear_vars(false)
         {}
@@ -140,8 +143,10 @@ namespace Ipopt {
          */
         ConoptConstraintType constraint_type(int orig_row) const {
             ConoptConstraintType type;
-            bool has_lower = IsFiniteNumber(g_l[orig_row]);
-            bool has_upper = IsFiniteNumber(g_u[orig_row]);
+
+            // Check if bounds represent infinity (IPOPT uses large finite numbers like 1e19, 2e19)
+            bool has_lower = IsFiniteNumber(g_l[orig_row]) && g_l[orig_row] < CONOPT_INFINITY;
+            bool has_upper = IsFiniteNumber(g_u[orig_row]) && g_u[orig_row] < CONOPT_INFINITY;
 
             if (has_lower && has_upper) {
                 if (g_l[orig_row] == g_u[orig_row])
@@ -333,14 +338,14 @@ namespace Ipopt {
                 // Determine if this is the lower or upper bound constraint
                 Index first_split = split_constraint_map[orig_idx];
                 if (split_idx == first_split) {
-                    return g_l[orig_idx]; // Lower bound
+                    return g_l[orig_idx]; // Lower bound (should be finite)
                 } else {
-                    return g_u[orig_idx]; // Upper bound
+                    return g_u[orig_idx]; // Upper bound (should be finite)
                 }
             } else if (type == ConoptConstraintType::EQUAL || type == ConoptConstraintType::GREATEREQ) {
-                return g_l[orig_idx];
+                return g_l[orig_idx]; // Should be finite
             } else if (type == ConoptConstraintType::LESSEQ) {
-                return g_u[orig_idx];
+                return g_u[orig_idx]; // Should be finite
             } else {
                 return 0.0; // FREE constraint
             }
@@ -413,7 +418,9 @@ namespace Ipopt {
             jacobian_split_map.clear();
             jacobian_split_rows.clear();
 
-            has_initial_x = has_initial_z = has_initial_lambda = false;
+            /* by default, as initial x is required. An initial z or lambda is not required. */
+            init_x_req = true;
+            init_z_req = init_lambda_req = false;
             has_variable_linearity = has_constraint_linearity = false;
             has_nonlinear_vars = false;
         }
@@ -430,9 +437,9 @@ namespace Ipopt {
             result += "  Split dimensions: m_split=" + std::to_string(m_split) +
                      ", nnz_jac_g_split=" + std::to_string(nnz_jac_g_split) + "\n";
             result += "  Index style: " + std::string(index_style == C_STYLE ? "C_STYLE" : "FORTRAN_STYLE") + "\n";
-            result += "  Has initial x: " + std::string(has_initial_x ? "yes" : "no") + "\n";
-            result += "  Has initial z: " + std::string(has_initial_z ? "yes" : "no") + "\n";
-            result += "  Has initial lambda: " + std::string(has_initial_lambda ? "yes" : "no") + "\n";
+            result += "  Has initial x: " + std::string(init_x_req ? "yes" : "no") + "\n";
+            result += "  Has initial z: " + std::string(init_z_req ? "yes" : "no") + "\n";
+            result += "  Has initial lambda: " + std::string(init_lambda_req ? "yes" : "no") + "\n";
             result += "  Complete: " + std::string(is_complete() ? "yes" : "no") + "\n";
             return result;
         }
