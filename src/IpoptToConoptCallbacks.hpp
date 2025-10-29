@@ -79,7 +79,6 @@ struct ConoptStatusSolution {
  */
 struct FDEvalCache {
    std::vector<double> constraint_values_;  // Cached constraint values (size = numcons)
-   std::vector<bool> constraint_valid_;     // Validity flags for each constraint (size = numcons)
    double objective_value_;                // Cached objective value
    bool objective_valid_;                  // Whether objective value is valid
    std::vector<double> objective_gradient_; // Cached objective gradient (size = n)
@@ -106,22 +105,12 @@ struct FDEvalCache {
         objective_gradient_valid_(false),
         jacobian_cached_(false) {
       constraint_values_.resize(num_constraints, 0.0);
-      constraint_valid_.resize(num_constraints, false);
       objective_gradient_.resize(num_variables, 0.0);
       jacobian_values_.resize(nnz_jacobian, 0.0);
       jacobian_valid_.resize(nnz_jacobian, false);
    }
 
-   /**
-    * @brief Reset all validity flags to false
-    */
-   void invalidateAll() {
-      std::fill(constraint_valid_.begin(), constraint_valid_.end(), false);
-      std::fill(jacobian_valid_.begin(), jacobian_valid_.end(), false);
-      objective_valid_ = false;
-      objective_gradient_valid_ = false;
-      jacobian_cached_ = false;
-   }
+   // No invalidation needed: all cache entries are overwritten when used
 
    /**
     * @brief Cache jacobian values

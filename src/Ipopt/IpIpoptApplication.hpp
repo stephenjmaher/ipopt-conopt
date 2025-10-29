@@ -309,7 +309,6 @@ namespace Ipopt {
 
          // Optional Callbacks
          COI_ERROR += COIDEF_FDEvalIni(cntvect_, Conopt_FDEvalIni);
-         COI_ERROR += COIDEF_FDEvalEnd(cntvect_, Conopt_FDEvalEnd);
 
          // Check for callback registration errors
          if (COI_ERROR != 0) {
