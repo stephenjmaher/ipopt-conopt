@@ -88,8 +88,8 @@ namespace Ipopt {
 
          // Set verbose output for debugging
          if (!IsNull(jnlst_)) {
-            // Add a console journal with detailed output
-            jnlst_->AddFileJournal("console", "stdout", Ipopt::J_DETAILED);
+            // Use summary-level output by default to reduce verbosity
+            jnlst_->AddFileJournal("console", "stdout", Ipopt::J_SUMMARY);
          }
       }
 
@@ -106,8 +106,8 @@ namespace Ipopt {
 
            // Set verbose output for debugging
            if (!IsNull(jnlst_)) {
-               // Add a console journal with detailed output
-               jnlst_->AddFileJournal("console", "stdout", Ipopt::J_DETAILED);
+               // Use summary-level output by default to reduce verbosity
+               jnlst_->AddFileJournal("console", "stdout", Ipopt::J_SUMMARY);
            }
       }
 

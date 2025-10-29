@@ -501,7 +501,7 @@ int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[]
       }
 
       if (jnlst) {
-         jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
+         jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
                       "CONOPT Shim: ReadMatrix populated successfully with split constraints.\n");
       }
 
@@ -845,20 +845,20 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
          // Cache the jacobian values
          cache->cacheJacobian(jacobian_values);
 
-         if (jnlst) {
-            jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_NLP,
-                         "CONOPT Shim: FDEvalIni cached jacobian values and objective gradient.\n");
-         }
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
+                      "CONOPT Shim: FDEvalIni cached jacobian values and objective gradient.\n");
+      }
       }
 
       if (jnlst) {
          if (need_function_eval) {
-            jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_NLP,
+            jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
                          "CONOPT Shim: FDEvalIni cached all %d constraint values and objective.\n",
                          (int)problem_info->m_split);
          }
          if (need_derivative_eval) {
-            jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_NLP,
+            jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
                          "CONOPT Shim: FDEvalIni cached jacobian values.\n");
          }
       }
@@ -912,7 +912,7 @@ int COI_CALLCONV Conopt_FDEvalEnd(int IGNERR, int *ERRCNT, void *USRMEM)
       context->fdeval_cache_->invalidateAll();
 
       if (jnlst) {
-         jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_NLP,
+         jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
                       "CONOPT Shim: FDEvalEnd invalidated cached values.\n");
       }
    }
@@ -941,7 +941,7 @@ int COI_CALLCONV Conopt_Status(int MODSTA, int SOLSTA, int ITER, double OBJVAL, 
    context->status_solution_->status_cached_ = true;
 
    if (jnlst) {
-      jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
+      jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
                    "CONOPT Shim: Status cached (MODSTA=%d, SOLSTA=%d, ITER=%d, OBJVAL=%g).\n",
                    MODSTA, SOLSTA, ITER, OBJVAL);
    }
@@ -1003,7 +1003,7 @@ int COI_CALLCONV Conopt_Solution(const double XVAL[], const double XMAR[], const
    status_sol->solution_cached_ = true;
 
    if (jnlst) {
-      jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
+      jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
                    "CONOPT Shim: Solution cached (n=%d, m=%d).\n", NUMVAR, NUMCON);
    }
 
@@ -1028,7 +1028,7 @@ int COI_CALLCONV Conopt_Message(int SMSG, int DMSG, int NMSG, char *MSGV[], void
           msg.pop_back();
       }
       // Screen messages are for immediate display - use SUMMARY level
-      jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN, "CONOPT: %s\n", msg.c_str());
+      jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN, "%s\n", msg.c_str());
    }
 
    // Process Status file messages (NMSG lines) - solution summary
@@ -1038,7 +1038,7 @@ int COI_CALLCONV Conopt_Message(int SMSG, int DMSG, int NMSG, char *MSGV[], void
           msg.pop_back();
       }
       // Status messages are summaries - use SUMMARY level with SOLUTION category
-      jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_SOLUTION, "CONOPT Status: %s\n", msg.c_str());
+      jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_SOLUTION, "CONOPT Status: %s\n", msg.c_str());
    }
 
    // Process Documentation file messages (DMSG lines) - detailed debugging
