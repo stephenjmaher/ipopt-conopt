@@ -11,7 +11,7 @@
 #include <cassert>
 #include <vector>
 #include <string>
-#include <algorithm> // For std::max
+#include <algorithm>  // For std::max
 #include <cstring>
 
 // Helper functions for status code conversions
@@ -30,57 +30,57 @@ Ipopt::ApplicationReturnStatus ConvertConoptToIpoptStatus(int modsta, int solsta
    }
 
    switch (solsta) {
-      case 1: { // Normal completion
-         switch (modsta) {
-            case 1: // Optimal
-            case 2: // Locally Optimal
-            case 7: // Feasible Solution
-               return Ipopt::Solve_Succeeded;
-            case 4: // Locally Infeasible
-            case 5: // Infeasible
-               return Ipopt::Infeasible_Problem_Detected;
-            default:
-               return Ipopt::Solved_To_Acceptable_Level; // conservative success fallback
-         }
+   case 1: {  // Normal completion
+      switch (modsta) {
+      case 1:  // Optimal
+      case 2:  // Locally Optimal
+      case 7:  // Feasible Solution
+         return Ipopt::Solve_Succeeded;
+      case 4:  // Locally Infeasible
+      case 5:  // Infeasible
+         return Ipopt::Infeasible_Problem_Detected;
+      default:
+         return Ipopt::Solved_To_Acceptable_Level;  // conservative success fallback
       }
-      case 2: // Iteration Interrupt
-         return Ipopt::Maximum_Iterations_Exceeded;
-      case 3: // Resource/CPU Time
-         return Ipopt::Maximum_CpuTime_Exceeded;
-      case 4: { // Terminated by Solver
-         switch (modsta) {
-            case 4: // Locally Infeasible (termination)
-               return Ipopt::Restoration_Failed;
-            case 6: // Intermediate Infeasible (termination)
-               return Ipopt::Search_Direction_Becomes_Too_Small;
-            case 3: // Unbounded (termination)
-               return Ipopt::Diverging_Iterates;
-            case 5: // Infeasible (termination)
-               return Ipopt::Infeasible_Problem_Detected;
-            case 13: // Error No Solution (termination)
-               return Ipopt::Error_In_Step_Computation;
-            default:
-               return Ipopt::Internal_Error;
-         }
-      }
-      case 5: // Evaluation Error Limit
-         return Ipopt::Invalid_Number_Detected;
-      case 6: // Error
-         return Ipopt::Internal_Error;
-      case 8: // User Interrupt
-         return Ipopt::User_Requested_Stop;
-      case 9: // Out of Memory
-         return Ipopt::Insufficient_Memory;
-      case 10: { // System Error / Invalid setup/options
-         switch (modsta) {
-            case 13:
-               return Ipopt::Invalid_Problem_Definition; // or Invalid_Option
-            default:
-               return Ipopt::Internal_Error;
-         }
-      }
+   }
+   case 2:  // Iteration Interrupt
+      return Ipopt::Maximum_Iterations_Exceeded;
+   case 3:  // Resource/CPU Time
+      return Ipopt::Maximum_CpuTime_Exceeded;
+   case 4: {  // Terminated by Solver
+      switch (modsta) {
+      case 4:  // Locally Infeasible (termination)
+         return Ipopt::Restoration_Failed;
+      case 6:  // Intermediate Infeasible (termination)
+         return Ipopt::Search_Direction_Becomes_Too_Small;
+      case 3:  // Unbounded (termination)
+         return Ipopt::Diverging_Iterates;
+      case 5:  // Infeasible (termination)
+         return Ipopt::Infeasible_Problem_Detected;
+      case 13:  // Error No Solution (termination)
+         return Ipopt::Error_In_Step_Computation;
       default:
          return Ipopt::Internal_Error;
+      }
+   }
+   case 5:  // Evaluation Error Limit
+      return Ipopt::Invalid_Number_Detected;
+   case 6:  // Error
+      return Ipopt::Internal_Error;
+   case 8:  // User Interrupt
+      return Ipopt::User_Requested_Stop;
+   case 9:  // Out of Memory
+      return Ipopt::Insufficient_Memory;
+   case 10: {  // System Error / Invalid setup/options
+      switch (modsta) {
+      case 13:
+         return Ipopt::Invalid_Problem_Definition;  // or Invalid_Option
+      default:
+         return Ipopt::Internal_Error;
+      }
+   }
+   default:
+      return Ipopt::Internal_Error;
    }
 }
 
@@ -91,133 +91,133 @@ Ipopt::ApplicationReturnStatus ConvertConoptToIpoptStatus(int modsta, int solsta
  */
 Ipopt::SolverReturn ConvertApplicationStatusToSolverReturn(Ipopt::ApplicationReturnStatus status) {
    switch (status) {
-      case Ipopt::Solve_Succeeded:
-         return Ipopt::SUCCESS;
-      case Ipopt::Solved_To_Acceptable_Level:
-         return Ipopt::STOP_AT_ACCEPTABLE_POINT;
-      case Ipopt::Infeasible_Problem_Detected:
-         return Ipopt::LOCAL_INFEASIBILITY;
-      case Ipopt::Search_Direction_Becomes_Too_Small:
-         return Ipopt::STOP_AT_TINY_STEP;
-      case Ipopt::Diverging_Iterates:
-         return Ipopt::DIVERGING_ITERATES;
-      case Ipopt::User_Requested_Stop:
-         return Ipopt::USER_REQUESTED_STOP;
-      case Ipopt::Feasible_Point_Found:
-         return Ipopt::FEASIBLE_POINT_FOUND;
-      case Ipopt::Maximum_Iterations_Exceeded:
-         return Ipopt::MAXITER_EXCEEDED;
-      case Ipopt::Maximum_CpuTime_Exceeded:
-         return Ipopt::CPUTIME_EXCEEDED;
-      case Ipopt::Error_In_Step_Computation:
-         return Ipopt::ERROR_IN_STEP_COMPUTATION;
-      case Ipopt::Invalid_Number_Detected:
-         return Ipopt::INVALID_NUMBER_DETECTED;
-      case Ipopt::Internal_Error:
-         return Ipopt::INTERNAL_ERROR;
-      default:
-         return Ipopt::INTERNAL_ERROR;
+   case Ipopt::Solve_Succeeded:
+      return Ipopt::SUCCESS;
+   case Ipopt::Solved_To_Acceptable_Level:
+      return Ipopt::STOP_AT_ACCEPTABLE_POINT;
+   case Ipopt::Infeasible_Problem_Detected:
+      return Ipopt::LOCAL_INFEASIBILITY;
+   case Ipopt::Search_Direction_Becomes_Too_Small:
+      return Ipopt::STOP_AT_TINY_STEP;
+   case Ipopt::Diverging_Iterates:
+      return Ipopt::DIVERGING_ITERATES;
+   case Ipopt::User_Requested_Stop:
+      return Ipopt::USER_REQUESTED_STOP;
+   case Ipopt::Feasible_Point_Found:
+      return Ipopt::FEASIBLE_POINT_FOUND;
+   case Ipopt::Maximum_Iterations_Exceeded:
+      return Ipopt::MAXITER_EXCEEDED;
+   case Ipopt::Maximum_CpuTime_Exceeded:
+      return Ipopt::CPUTIME_EXCEEDED;
+   case Ipopt::Error_In_Step_Computation:
+      return Ipopt::ERROR_IN_STEP_COMPUTATION;
+   case Ipopt::Invalid_Number_Detected:
+      return Ipopt::INVALID_NUMBER_DETECTED;
+   case Ipopt::Internal_Error:
+      return Ipopt::INTERNAL_ERROR;
+   default:
+      return Ipopt::INTERNAL_ERROR;
    }
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 // Helper to get the context struct from the cookie
-static inline IpoptConoptContext* GetContext(void *USRMEM) {
+static inline IpoptConoptContext* GetContext(void* USRMEM) {
    assert(USRMEM != nullptr);
    return static_cast<IpoptConoptContext*>(USRMEM);
 }
 
 // Helper to get TNLP from the context
-static inline Ipopt::TNLP* GetTNLP(void *USRMEM) {
+static inline Ipopt::TNLP* GetTNLP(void* USRMEM) {
    return GetContext(USRMEM)->tnlp_;
 }
 
 // Helper to get Journalist
-static inline Ipopt::Journalist* GetJournalist(void *USRMEM) {
-    return GetContext(USRMEM)->journalist_;
+static inline Ipopt::Journalist* GetJournalist(void* USRMEM) {
+   return GetContext(USRMEM)->journalist_;
 }
 
 // Helper to get Problem Info
-static inline Ipopt::IpoptProblemInfo* GetProblemInfo(void *USRMEM) {
-    return GetContext(USRMEM)->problem_info_;
+static inline Ipopt::IpoptProblemInfo* GetProblemInfo(void* USRMEM) {
+   return GetContext(USRMEM)->problem_info_;
 }
 
 // Cleanup function for context
 void CleanupIpoptConoptContext(IpoptConoptContext* context) {
-    if (context && context->fdeval_cache_) {
-        delete context->fdeval_cache_;
-        context->fdeval_cache_ = nullptr;
-    }
+   if (context && context->fdeval_cache_) {
+      delete context->fdeval_cache_;
+      context->fdeval_cache_ = nullptr;
+   }
 }
 
 // Helper function to get cached constraint value
 bool GetCachedConstraintValue(IpoptConoptContext* context, int row_idx, double& value) {
-    if (!context || !context->fdeval_cache_) {
-        return false;
-    }
+   if (!context || !context->fdeval_cache_) {
+      return false;
+   }
 
-    FDEvalCache* cache = context->fdeval_cache_;
-    if (row_idx < 0 || row_idx >= cache->num_constraints_) {
-        return false;
-    }
-    value = cache->constraint_values_[row_idx];
-    return true;
+   FDEvalCache* cache = context->fdeval_cache_;
+   if (row_idx < 0 || row_idx >= cache->num_constraints_) {
+      return false;
+   }
+   value = cache->constraint_values_[row_idx];
+   return true;
 }
 
 // Helper function to get cached objective value
 bool GetCachedObjectiveValue(IpoptConoptContext* context, double& value) {
-    if (!context || !context->fdeval_cache_) {
-        return false;
-    }
+   if (!context || !context->fdeval_cache_) {
+      return false;
+   }
 
-    FDEvalCache* cache = context->fdeval_cache_;
-    if (cache->objective_valid_) {
-        value = cache->objective_value_;
-        return true;
-    }
+   FDEvalCache* cache = context->fdeval_cache_;
+   if (cache->objective_valid_) {
+      value = cache->objective_value_;
+      return true;
+   }
 
-    return false;
+   return false;
 }
 
 // Helper function to get cached jacobian value
 bool GetCachedJacobianValue(IpoptConoptContext* context, int jacobian_idx, double& value) {
-    if (!context || !context->fdeval_cache_) {
-        return false;
-    }
+   if (!context || !context->fdeval_cache_) {
+      return false;
+   }
 
-    FDEvalCache* cache = context->fdeval_cache_;
-    return cache->getCachedJacobianValue(jacobian_idx, value);
+   FDEvalCache* cache = context->fdeval_cache_;
+   return cache->getCachedJacobianValue(jacobian_idx, value);
 }
 
 // Helper function to check if jacobian is cached
 bool IsJacobianCached(IpoptConoptContext* context) {
-    if (!context || !context->fdeval_cache_) {
-        return false;
-    }
+   if (!context || !context->fdeval_cache_) {
+      return false;
+   }
 
-    FDEvalCache* cache = context->fdeval_cache_;
-    return cache->isJacobianCached();
+   FDEvalCache* cache = context->fdeval_cache_;
+   return cache->isJacobianCached();
 }
 
 // Helper function to get cached objective gradient value
 bool GetCachedObjectiveGradientValue(IpoptConoptContext* context, int var_idx, double& value) {
-    if (!context || !context->fdeval_cache_) {
-        return false;
-    }
+   if (!context || !context->fdeval_cache_) {
+      return false;
+   }
 
-    FDEvalCache* cache = context->fdeval_cache_;
-    return cache->getCachedObjectiveGradientValue(var_idx, value);
+   FDEvalCache* cache = context->fdeval_cache_;
+   return cache->getCachedObjectiveGradientValue(var_idx, value);
 }
 
 // Helper function to check if objective gradient is cached
 bool IsObjectiveGradientCached(IpoptConoptContext* context) {
-    if (!context || !context->fdeval_cache_) {
-        return false;
-    }
+   if (!context || !context->fdeval_cache_) {
+      return false;
+   }
 
-    FDEvalCache* cache = context->fdeval_cache_;
-    return cache->isObjectiveGradientCached();
+   FDEvalCache* cache = context->fdeval_cache_;
+   return cache->isObjectiveGradientCached();
 }
 
 bool CallFinalizeSolutionWithCachedData(IpoptConoptContext* context) {
@@ -232,7 +232,7 @@ bool CallFinalizeSolutionWithCachedData(IpoptConoptContext* context) {
    if (!problem_info) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                      "CONOPT Shim Error: ProblemInfo is NULL in CallFinalizeSolutionWithCachedData.\n");
+               "CONOPT Shim Error: ProblemInfo is NULL in CallFinalizeSolutionWithCachedData.\n");
       }
       return false;
    }
@@ -241,7 +241,7 @@ bool CallFinalizeSolutionWithCachedData(IpoptConoptContext* context) {
    if (!status_sol->status_cached_) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_MAIN,
-                      "CONOPT Shim Warning: No status data cached for finalize_solution.\n");
+               "CONOPT Shim Warning: No status data cached for finalize_solution.\n");
       }
       return false;
    }
@@ -249,16 +249,14 @@ bool CallFinalizeSolutionWithCachedData(IpoptConoptContext* context) {
    if (!status_sol->solution_cached_) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_MAIN,
-                      "CONOPT Shim Warning: No solution data cached for finalize_solution.\n");
+               "CONOPT Shim Warning: No solution data cached for finalize_solution.\n");
       }
       return false;
    }
 
    // Translate CONOPT status codes to Ipopt ApplicationReturnStatus
-   Ipopt::ApplicationReturnStatus status = ConvertConoptToIpoptStatus(
-      status_sol->conopt_modsta_,
-      status_sol->conopt_solsta_
-   );
+   Ipopt::ApplicationReturnStatus status =
+         ConvertConoptToIpoptStatus(status_sol->conopt_modsta_, status_sol->conopt_solsta_);
 
    try {
       // Convert ApplicationReturnStatus to SolverReturn
@@ -266,37 +264,37 @@ bool CallFinalizeSolutionWithCachedData(IpoptConoptContext* context) {
 
       // Call finalize_solution with the cached data
       context->tnlp_->finalize_solution(
-         solver_status,
-         problem_info->n,
-         status_sol->x_solution_.data(),
-         status_sol->x_marginals_.data(),  // z_L (lower bound multipliers)
-         status_sol->x_marginals_.data(),  // z_U (upper bound multipliers) - CONOPT provides combined marginals
-         problem_info->m,
-         status_sol->y_solution_.data(),   // g (constraint values)
-         status_sol->y_marginals_.data(),  // lambda (constraint multipliers)
-         status_sol->conopt_objval_,
-         nullptr, // ip_data - not available from CONOPT
-         nullptr  // ip_cq - not available from CONOPT
+            solver_status, problem_info->n, status_sol->x_solution_.data(),
+            status_sol->x_marginals_.data(),  // z_L (lower bound multipliers)
+            status_sol->x_marginals_
+                  .data(),  // z_U (upper bound multipliers) - CONOPT provides combined marginals
+            problem_info->m,
+            status_sol->y_solution_.data(),   // g (constraint values)
+            status_sol->y_marginals_.data(),  // lambda (constraint multipliers)
+            status_sol->conopt_objval_,
+            nullptr,  // ip_data - not available from CONOPT
+            nullptr   // ip_cq - not available from CONOPT
       );
 
       if (jnlst) {
          jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
-                      "CONOPT Shim: finalize_solution called with status %d (MODSTA=%d, SOLSTA=%d).\n",
-                      static_cast<int>(status), status_sol->conopt_modsta_, status_sol->conopt_solsta_);
+               "CONOPT Shim: finalize_solution called with status %d (MODSTA=%d, SOLSTA=%d).\n",
+               static_cast<int>(status), status_sol->conopt_modsta_, status_sol->conopt_solsta_);
       }
 
       return true;
-
-   } catch (const std::exception& e) {
+   }
+   catch (const std::exception& e) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
-                      "CONOPT Shim: Exception in finalize_solution: %s\n", e.what());
+               "CONOPT Shim: Exception in finalize_solution: %s\n", e.what());
       }
       return false;
-   } catch (...) {
+   }
+   catch (...) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
-                      "CONOPT Shim: Unknown exception in finalize_solution.\n");
+               "CONOPT Shim: Unknown exception in finalize_solution.\n");
       }
       return false;
    }
@@ -314,7 +312,7 @@ bool PopulateSolveStatistics(IpoptConoptContext* context) {
    if (!status_sol->status_cached_) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_MAIN,
-                      "CONOPT Shim Warning: No status data available for SolveStatistics.\n");
+               "CONOPT Shim Warning: No status data available for SolveStatistics.\n");
       }
       return false;
    }
@@ -325,7 +323,7 @@ bool PopulateSolveStatistics(IpoptConoptContext* context) {
       if (!stats) {
          if (jnlst) {
             jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                         "CONOPT Shim Error: SolveStatistics is not a SolveStatistics instance.\n");
+                  "CONOPT Shim Error: SolveStatistics is not a SolveStatistics instance.\n");
          }
          return false;
       }
@@ -333,13 +331,11 @@ bool PopulateSolveStatistics(IpoptConoptContext* context) {
       // Set basic solve information
       stats->SetIterationCount(status_sol->conopt_iter_);
       stats->SetFinalObjective(status_sol->conopt_objval_);
-      stats->SetFinalScaledObjective(status_sol->conopt_objval_); // Assume no scaling for now
+      stats->SetFinalScaledObjective(status_sol->conopt_objval_);  // Assume no scaling for now
 
       // Translate CONOPT status to Ipopt solve status
-      Ipopt::ApplicationReturnStatus solve_status = ConvertConoptToIpoptStatus(
-         status_sol->conopt_modsta_,
-         status_sol->conopt_solsta_
-      );
+      Ipopt::ApplicationReturnStatus solve_status =
+            ConvertConoptToIpoptStatus(status_sol->conopt_modsta_, status_sol->conopt_solsta_);
       stats->SetSolveStatus(solve_status);
 
       // Set convergence information
@@ -368,17 +364,18 @@ bool PopulateSolveStatistics(IpoptConoptContext* context) {
          dual_inf = max_dual_inf;
 
          // Estimate bound violations (simplified)
-         bound_viol = 0.0; // Would need to check against variable bounds
+         bound_viol = 0.0;  // Would need to check against variable bounds
 
          // Estimate complementarity (simplified)
-          complementarity = 0.0; // Would need to compute from solution and bounds
+         complementarity = 0.0;  // Would need to compute from solution and bounds
 
          // Estimate KKT error (simplified)
          kkt_error = std::max(dual_inf, constr_viol);
       }
 
       stats->SetInfeasibilities(dual_inf, constr_viol, bound_viol, complementarity, kkt_error);
-      stats->SetScaledInfeasibilities(dual_inf, constr_viol, bound_viol, complementarity, kkt_error); // Assume no scaling
+      stats->SetScaledInfeasibilities(
+            dual_inf, constr_viol, bound_viol, complementarity, kkt_error);  // Assume no scaling
 
       // Function evaluation counts are now automatically tracked in FDEvalIni
       // Timing is now automatically tracked in OptimizeTNLP
@@ -386,22 +383,24 @@ bool PopulateSolveStatistics(IpoptConoptContext* context) {
 
       if (jnlst) {
          jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
-                      "CONOPT Shim: SolveStatistics populated (iterations=%d, obj=%g, status=%d).\n",
-                      status_sol->conopt_iter_, status_sol->conopt_objval_, static_cast<int>(solve_status));
+               "CONOPT Shim: SolveStatistics populated (iterations=%d, obj=%g, status=%d).\n",
+               status_sol->conopt_iter_, status_sol->conopt_objval_,
+               static_cast<int>(solve_status));
       }
 
       return true;
-
-   } catch (const std::exception& e) {
+   }
+   catch (const std::exception& e) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                      "CONOPT Shim: Exception in PopulateSolveStatistics: %s\n", e.what());
+               "CONOPT Shim: Exception in PopulateSolveStatistics: %s\n", e.what());
       }
       return false;
-   } catch (...) {
+   }
+   catch (...) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                      "CONOPT Shim: Unknown exception in PopulateSolveStatistics.\n");
+               "CONOPT Shim: Unknown exception in PopulateSolveStatistics.\n");
       }
       return false;
    }
@@ -414,31 +413,31 @@ bool PopulateSolveStatistics(IpoptConoptContext* context) {
 // This trampoline might need to cache info from previous calls or might not be needed
 // if CONOPT can get the matrix structure differently. For now, let's assume it
 // needs to be implemented based on cached data or default values.
-int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[], int VSTA[], int TYPE[],
-   double RHS[], int ESTA[], int COLSTA[], int ROWNO[], double VALUE[], int NLFLAG[], int NUMVAR, int NUMCON,
-   int NUMNZ, void *USRMEM)
-{
+int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[], int VSTA[],
+      int TYPE[], double RHS[], int ESTA[], int COLSTA[], int ROWNO[], double VALUE[], int NLFLAG[],
+      int NUMVAR, int NUMCON, int NUMNZ, void* USRMEM) {
    Ipopt::IpoptProblemInfo* problem_info = GetProblemInfo(USRMEM);
    Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
 
    if (!problem_info) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                      "CONOPT Shim Error: Problem info is NULL in ReadMatrix.\n");
+               "CONOPT Shim Error: Problem info is NULL in ReadMatrix.\n");
       }
-      return 1; // Critical error
+      return 1;  // Critical error
    }
 
    // Verify dimensions match (use split dimensions for constraints)
-   if (NUMVAR != problem_info->n || NUMCON != problem_info->m_split || NUMNZ != problem_info->nnz_jac_g_split) {
+   if (NUMVAR != problem_info->n || NUMCON != problem_info->m_split ||
+         NUMNZ != problem_info->nnz_jac_g_split) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                      "CONOPT Shim Error: Dimension mismatch in ReadMatrix. "
-                      "Expected: n=%d, m_split=%d, nnz_split=%d. Got: n=%d, m=%d, nnz=%d\n",
-                      problem_info->n, problem_info->m_split, problem_info->nnz_jac_g_split,
-                      NUMVAR, NUMCON, NUMNZ);
+               "CONOPT Shim Error: Dimension mismatch in ReadMatrix. "
+               "Expected: n=%d, m_split=%d, nnz_split=%d. Got: n=%d, m=%d, nnz=%d\n",
+               problem_info->n, problem_info->m_split, problem_info->nnz_jac_g_split, NUMVAR,
+               NUMCON, NUMNZ);
       }
-      return 1; // Critical error
+      return 1;  // Critical error
    }
 
    try {
@@ -461,10 +460,10 @@ int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[]
          TYPE[i] = int(problem_info->get_split_constraint_type(i));
          RHS[i] = problem_info->get_split_constraint_rhs(i);
 
-         // the equation status is not being given at this stage, since this requires the functions to be evaluated
-         // first.
+         // the equation status is not being given at this stage, since this requires the functions
+         // to be evaluated first.
          // TODO: consider whether this is necessary.
-         //ESTA[i] = 0;
+         // ESTA[i] = 0;
       }
 
       // Populate Jacobian structure (using split Jacobian)
@@ -499,32 +498,32 @@ int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[]
          if (col >= 0 && col < NUMVAR && row >= 0 && row < NUMCON) {
             Ipopt::Index pos = COLSTA[col] + col_positions[col];
             ROWNO[pos] = row;
-            VALUE[pos] = 0.0; // Values will be computed by FDEval
-            NLFLAG[pos] = 1; // the NLFLAG is set to 1 for all values because Ipopt evaluates all expressions, even
-                             // linear expressions.
+            VALUE[pos] = 0.0;  // Values will be computed by FDEval
+            NLFLAG[pos] = 1;   // the NLFLAG is set to 1 for all values because Ipopt evaluates all
+                              // expressions, even linear expressions.
             col_positions[col]++;
          }
       }
 
       if (jnlst) {
          jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
-                      "CONOPT Shim: ReadMatrix populated successfully with split constraints.\n");
+               "CONOPT Shim: ReadMatrix populated successfully with split constraints.\n");
       }
-
-   } catch (const std::exception& e) {
+   }
+   catch (const std::exception& e) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                      "CONOPT Shim Error: Exception in ReadMatrix: %s\n", e.what());
+               "CONOPT Shim Error: Exception in ReadMatrix: %s\n", e.what());
       }
-      return 1; // Critical error
+      return 1;  // Critical error
    }
 
-   return 0; // Success
+   return 0;  // Success
 }
 
-int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int ROWNO, const int JACNUM[], int MODE,
-   int IGNERR, int *ERRCNT, int NUMVAR, int NUMJAC, int THREAD, void *USRMEM)
-{
+int COI_CALLCONV Conopt_FDEval(const double X[], double* G, double JAC[], int ROWNO,
+      const int JACNUM[], int MODE, int IGNERR, int* ERRCNT, int NUMVAR, int NUMJAC, int THREAD,
+      void* USRMEM) {
    IpoptConoptContext* context = GetContext(USRMEM);
    Ipopt::TNLP* tnlp = GetTNLP(USRMEM);
    Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
@@ -533,21 +532,23 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
    if (!tnlp || !problem_info) {
       // Log error even if journalist is null? Maybe stderr.
       fprintf(stderr, "CONOPT Error: TNLP or ProblemInfo object is NULL in FDEval trampoline.\n");
-      return 1; // Indicate critical error
+      return 1;  // Indicate critical error
    }
 
    // --- Adjust ROWNO based on Base ---
    // CONOPT doc mentions Base determines if ROWNO is 0/1 based. Ipopt is always C-style (0-based).
    // We assume CONOPT uses 0-based indexing (C_STYLE).
    // The objective function is now the last row in the constraint matrix.
-   bool is_objective = (ROWNO == problem_info->objective_row_index); // CONOPT is 0-based
+   bool is_objective = (ROWNO == problem_info->objective_row_index);  // CONOPT is 0-based
    Ipopt::Index conopt_constraint_idx = -1;
    Ipopt::Index ipopt_constraint_idx = -1;
    if (!is_objective) {
-      conopt_constraint_idx = ROWNO; // CONOPT uses 0-based indexing
+      conopt_constraint_idx = ROWNO;  // CONOPT uses 0-based indexing
       if (conopt_constraint_idx < 0 || conopt_constraint_idx >= problem_info->m_split) {
-         if (jnlst) jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN, "CONOPT Shim Error: Invalid ROWNO %d received from CONOPT.\n", ROWNO);
-         return 1; // Critical error
+         if (jnlst)
+            jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                  "CONOPT Shim Error: Invalid ROWNO %d received from CONOPT.\n", ROWNO);
+         return 1;  // Critical error
       }
       // Map CONOPT constraint index to Ipopt constraint index using the mapping
       ipopt_constraint_idx = problem_info->original_constraint_map[conopt_constraint_idx];
@@ -563,34 +564,38 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
                *G = cached_obj_value;
                if (jnlst) {
                   jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
-                               "CONOPT Shim: Using cached objective value.\n");
+                        "CONOPT Shim: Using cached objective value.\n");
                }
-            } else {
+            }
+            else {
                // This is an error - FDEval should only be called for objective if it was in ROWLIST
                if (jnlst) {
                   jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                               "CONOPT Shim Error: No cached value for objective. "
-                               "Objective was not in the ROWLIST from FDEvalIni.\n");
+                        "CONOPT Shim Error: No cached value for objective. "
+                        "Objective was not in the ROWLIST from FDEvalIni.\n");
                }
-               return 1; // there is an error in the interface.
+               return 1;  // there is an error in the interface.
             }
-         } else { // It's a constraint
+         }
+         else {  // It's a constraint
             // Check for cached constraint value first
             double cached_constraint_value;
             if (GetCachedConstraintValue(context, conopt_constraint_idx, cached_constraint_value)) {
                *G = cached_constraint_value;
                if (jnlst) {
                   jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
-                               "CONOPT Shim: Using cached constraint value for row %d.\n", ROWNO);
+                        "CONOPT Shim: Using cached constraint value for row %d.\n", ROWNO);
                }
-            } else {
+            }
+            else {
                // This is an error - FDEval should only be called for rows that were in ROWLIST
                if (jnlst) {
                   jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                               "CONOPT Shim Error: No cached value for constraint row %d. "
-                               "This row was not in the ROWLIST from FDEvalIni.\n", ROWNO);
+                        "CONOPT Shim Error: No cached value for constraint row %d. "
+                        "This row was not in the ROWLIST from FDEvalIni.\n",
+                        ROWNO);
                }
-               return 1; // there is an error in the interface.
+               return 1;  // there is an error in the interface.
             }
          }
       }
@@ -605,30 +610,35 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
                   double cached_value;
                   if (GetCachedObjectiveGradientValue(context, j, cached_value)) {
                      JAC[j] = cached_value;
-                  } else {
+                  }
+                  else {
                      // This is an error - gradient should be fully cached
                      if (jnlst) {
                         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                                     "CONOPT Shim Error: No cached value for objective gradient at variable %d. "
-                                     "Objective gradient was not properly cached in FDEvalIni.\n", j);
+                              "CONOPT Shim Error: No cached value for objective gradient at "
+                              "variable %d. "
+                              "Objective gradient was not properly cached in FDEvalIni.\n",
+                              j);
                      }
-                     return 1; // There is an issue with the interface
+                     return 1;  // There is an issue with the interface
                   }
                }
                if (jnlst) {
                   jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
-                               "CONOPT Shim: Using cached objective gradient.\n");
+                        "CONOPT Shim: Using cached objective gradient.\n");
                }
-            } else {
+            }
+            else {
                // This is an error - objective gradient should be cached
                if (jnlst) {
                   jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                               "CONOPT Shim Error: No cached objective gradient. "
-                               "Objective gradient was not cached in FDEvalIni.\n");
+                        "CONOPT Shim Error: No cached objective gradient. "
+                        "Objective gradient was not cached in FDEvalIni.\n");
                }
-               return 1; // There is an issue with the interface
+               return 1;  // There is an issue with the interface
             }
-         } else { // It's a constraint Jacobian row
+         }
+         else {  // It's a constraint Jacobian row
             // Handle constraint Jacobian row
             // Check if jacobian is cached first
             if (IsJacobianCached(context)) {
@@ -647,56 +657,69 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
                            double cached_value;
                            if (GetCachedJacobianValue(context, orig_k, cached_value)) {
                               JAC[split_col] = cached_value;
-                           } else {
+                           }
+                           else {
                               // This is an error - jacobian should be fully cached
                               if (jnlst) {
                                  jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                                              "CONOPT Shim Error: No cached value for jacobian entry %d. "
-                                              "Jacobian was not properly cached in FDEvalIni.\n", orig_k);
+                                       "CONOPT Shim Error: No cached value for jacobian entry %d. "
+                                       "Jacobian was not properly cached in FDEvalIni.\n",
+                                       orig_k);
                               }
-                              return 1; // There is an issue with the interface
+                              return 1;  // There is an issue with the interface
                            }
-                        } else {
+                        }
+                        else {
                            if (jnlst) {
                               jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                                           "CONOPT Shim Error: The constraint mapping is not consistent.\n");
+                                    "CONOPT Shim Error: The constraint mapping is not "
+                                    "consistent.\n");
                            }
-                           return 1; // there is an issue with the interface.
+                           return 1;  // there is an issue with the interface.
                         }
-                     } else {
+                     }
+                     else {
                         // Should not happen if structure is correct
-                        if (jnlst) jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN, "CONOPT Shim Error: Invalid column index %d from split Jacobian structure.\n", split_col);
-                        return 1; // there is an issue with the interface
+                        if (jnlst)
+                           jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                                 "CONOPT Shim Error: Invalid column index %d from split Jacobian "
+                                 "structure.\n",
+                                 split_col);
+                        return 1;  // there is an issue with the interface
                      }
                   }
                }
-            } else {
+            }
+            else {
                // This is an error - jacobian should be cached
                if (jnlst) {
                   jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                               "CONOPT Shim Error: No cached jacobian. "
-                               "Jacobian was not cached in FDEvalIni.\n");
+                        "CONOPT Shim Error: No cached jacobian. "
+                        "Jacobian was not cached in FDEvalIni.\n");
                }
-               return 1; // there is an issue with the interface
+               return 1;  // there is an issue with the interface
             }
          }
       }
-   } catch (const std::exception& e) {
+   }
+   catch (const std::exception& e) {
       // Catch exceptions from user code
-      if (jnlst) jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
-                               "CONOPT Shim: Exception caught in user NLP evaluation: %s\n", e.what());
+      if (jnlst)
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
+               "CONOPT Shim: Exception caught in user NLP evaluation: %s\n", e.what());
       return 1;
-   } catch (...) {
-      if (jnlst) jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
-                               "CONOPT Shim: Unknown exception caught in user NLP evaluation.\n");
+   }
+   catch (...) {
+      if (jnlst)
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
+               "CONOPT Shim: Unknown exception caught in user NLP evaluation.\n");
       return 1;
    }
 
    // CONOPT Docs: Return non-zero for serious/permanent error.
    // Evaluation errors are handled via ERRCNT.
-   return 0; // Indicate success (or recoverable evaluation error)
+   return 0;  // Indicate success (or recoverable evaluation error)
 }
-
 
 /**
  * @brief CONOPT FDEvalIni callback - Function and Derivative Evaluator Initialization
@@ -717,9 +740,8 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int RO
  * @param USRMEM User memory pointer containing IpoptConoptContext
  * @return 0 on success, 1 on critical error
  */
-int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MODE, int LISTSIZE, int NUMTHREAD,
-   int IGNERR, int *ERRCNT, int NUMVAR, void *USRMEM)
-{
+int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MODE, int LISTSIZE,
+      int NUMTHREAD, int IGNERR, int* ERRCNT, int NUMVAR, void* USRMEM) {
    // if there are no rows in the ROWLIST, then we don't evaluate any constraints or objective.
    if (LISTSIZE == 0)
       return 0;
@@ -732,9 +754,9 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
    if (!tnlp || !problem_info) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                      "CONOPT Shim Error: TNLP or ProblemInfo object is NULL in FDEvalIni.\n");
+               "CONOPT Shim Error: TNLP or ProblemInfo object is NULL in FDEvalIni.\n");
       }
-      return 1; // Critical error
+      return 1;  // Critical error
    }
    // Process based on MODE: 1=function, 2=derivatives, 3=both
    bool need_function_eval = (MODE & 1);
@@ -749,9 +771,9 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
    if (!context->fdeval_cache_) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                      "CONOPT Shim Error: FDEvalCache not initialized in FDEvalIni.\n");
+               "CONOPT Shim Error: FDEvalCache not initialized in FDEvalIni.\n");
       }
-      return 1; // Critical error
+      return 1;  // Critical error
    }
 
    FDEvalCache* cache = context->fdeval_cache_;
@@ -768,10 +790,11 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
             if (!tnlp->eval_g(problem_info->n, X, true, problem_info->m, all_g.data())) {
                if (jnlst) {
                   jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP,
-                               "CONOPT Shim: eval_g failed in FDEvalIni.\n");
+                        "CONOPT Shim: eval_g failed in FDEvalIni.\n");
                }
                (*ERRCNT)++;
-            } else {
+            }
+            else {
                if (context->stats_) {
                   context->stats_->IncrementConstraintEvaluations();
                }
@@ -790,11 +813,12 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
          Ipopt::Number obj_value;
          if (!tnlp->eval_f(problem_info->n, X, true, obj_value)) {
             if (jnlst) {
-               jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP,
-                            "CONOPT Shim: eval_f failed in FDEvalIni.\n");
+               jnlst->Printf(
+                     Ipopt::J_WARNING, Ipopt::J_NLP, "CONOPT Shim: eval_f failed in FDEvalIni.\n");
             }
             (*ERRCNT)++;
-         } else {
+         }
+         else {
             if (context->stats_) {
                context->stats_->IncrementObjectiveEvaluations();
             }
@@ -811,10 +835,11 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
             if (!tnlp->eval_grad_f(problem_info->n, X, true, objective_gradient.data())) {
                if (jnlst) {
                   jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP,
-                               "CONOPT Shim: eval_grad_f failed in FDEvalIni.\n");
+                        "CONOPT Shim: eval_grad_f failed in FDEvalIni.\n");
                }
                (*ERRCNT)++;
-            } else {
+            }
+            else {
                // Increment objective gradient evaluation count
                if (context->stats_) {
                   context->stats_->IncrementObjectiveGradientEvaluations();
@@ -828,14 +853,15 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
          // Evaluate all jacobian values
          std::vector<Ipopt::Number> jacobian_values(problem_info->nnz_jac_g);
          if (!tnlp->eval_jac_g(problem_info->n, X, true, problem_info->m, problem_info->nnz_jac_g,
-                               problem_info->jac_g_iRow.data(), problem_info->jac_g_jCol.data(),
-                               jacobian_values.data())) {
+                   problem_info->jac_g_iRow.data(), problem_info->jac_g_jCol.data(),
+                   jacobian_values.data())) {
             if (jnlst) {
                jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP,
-                            "CONOPT Shim: eval_jac_g failed in FDEvalIni.\n");
+                     "CONOPT Shim: eval_jac_g failed in FDEvalIni.\n");
             }
             (*ERRCNT)++;
-         } else {
+         }
+         else {
             // Increment constraint jacobian evaluation count
             if (context->stats_) {
                context->stats_->IncrementConstraintJacobianEvaluations();
@@ -845,45 +871,45 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
          // Cache the jacobian values
          cache->cacheJacobian(jacobian_values);
 
-      if (jnlst) {
-         jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
-                      "CONOPT Shim: FDEvalIni cached jacobian values and objective gradient.\n");
-      }
+         if (jnlst) {
+            jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
+                  "CONOPT Shim: FDEvalIni cached jacobian values and objective gradient.\n");
+         }
       }
 
       if (jnlst) {
          if (need_function_eval) {
             jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
-                         "CONOPT Shim: FDEvalIni cached all %d constraint values and objective.\n",
-                         (int)problem_info->m_split);
+                  "CONOPT Shim: FDEvalIni cached all %d constraint values and objective.\n",
+                  (int)problem_info->m_split);
          }
          if (need_derivative_eval) {
             jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
-                         "CONOPT Shim: FDEvalIni cached jacobian values.\n");
+                  "CONOPT Shim: FDEvalIni cached jacobian values.\n");
          }
       }
-
-   } catch (const std::exception& e) {
+   }
+   catch (const std::exception& e) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
-                      "CONOPT Shim: Exception in FDEvalIni: %s\n", e.what());
+               "CONOPT Shim: Exception in FDEvalIni: %s\n", e.what());
       }
       (*ERRCNT)++;
-   } catch (...) {
+   }
+   catch (...) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
-                      "CONOPT Shim: Unknown exception in FDEvalIni.\n");
+               "CONOPT Shim: Unknown exception in FDEvalIni.\n");
       }
       (*ERRCNT)++;
    }
 
-   return 0; // Success
+   return 0;  // Success
 }
 
 // === Hessian of Lagrangian: Structure ===
-int COI_CALLCONV Conopt_2DLagrStr(int HSRW[], int HSCL[], int *NODRV,
-   int NUMVAR, int NUMCON, int NHESS, void *USRMEM)
-{
+int COI_CALLCONV Conopt_2DLagrStr(
+      int HSRW[], int HSCL[], int* NODRV, int NUMVAR, int NUMCON, int NHESS, void* USRMEM) {
    IpoptConoptContext* context = GetContext(USRMEM);
    Ipopt::IpoptProblemInfo* problem_info = context->problem_info_;
    Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
@@ -891,7 +917,7 @@ int COI_CALLCONV Conopt_2DLagrStr(int HSRW[], int HSCL[], int *NODRV,
    if (!problem_info) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                      "CONOPT Shim Error: Problem info is NULL in 2DLagrStr.\n");
+               "CONOPT Shim Error: Problem info is NULL in 2DLagrStr.\n");
       }
       return 1;
    }
@@ -900,8 +926,8 @@ int COI_CALLCONV Conopt_2DLagrStr(int HSRW[], int HSCL[], int *NODRV,
    if (NHESS != problem_info->nnz_h_lag) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                      "CONOPT Shim Error: NHESS mismatch in 2DLagrStr. Expected %d, got %d.\n",
-                      problem_info->nnz_h_lag, NHESS);
+               "CONOPT Shim Error: NHESS mismatch in 2DLagrStr. Expected %d, got %d.\n",
+               problem_info->nnz_h_lag, NHESS);
       }
       return 1;
    }
@@ -922,17 +948,16 @@ int COI_CALLCONV Conopt_2DLagrStr(int HSRW[], int HSCL[], int *NODRV,
 
    if (jnlst) {
       jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
-                   "CONOPT Shim: 2DLagrStr populated (NHESS=%d).\n", NHESS);
+            "CONOPT Shim: 2DLagrStr populated (NHESS=%d).\n", NHESS);
    }
 
    return 0;
 }
 
 // === Hessian of Lagrangian: Values ===
-int COI_CALLCONV Conopt_2DLagrVal(const double X[], const double U[],
-   const int HSRW[], const int HSCL[], double HSVL[], int *NODRV,
-   int NUMVAR, int NUMCON, int NHESS, void *USRMEM)
-{
+int COI_CALLCONV Conopt_2DLagrVal(const double X[], const double U[], const int HSRW[],
+      const int HSCL[], double HSVL[], int* NODRV, int NUMVAR, int NUMCON, int NHESS,
+      void* USRMEM) {
    IpoptConoptContext* context = GetContext(USRMEM);
    Ipopt::TNLP* tnlp = context->tnlp_;
    Ipopt::IpoptProblemInfo* problem_info = context->problem_info_;
@@ -941,17 +966,20 @@ int COI_CALLCONV Conopt_2DLagrVal(const double X[], const double U[],
    if (!tnlp || !problem_info) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                      "CONOPT Shim Error: TNLP or ProblemInfo is NULL in 2DLagrVal.\n");
+               "CONOPT Shim Error: TNLP or ProblemInfo is NULL in 2DLagrVal.\n");
       }
       return 1;
    }
 
    // Sanity checks
-   if (NUMVAR != problem_info->n || NUMCON != problem_info->m_split || NHESS != problem_info->nnz_h_lag) {
+   if (NUMVAR != problem_info->n || NUMCON != problem_info->m_split ||
+         NHESS != problem_info->nnz_h_lag) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                      "CONOPT Shim Error: Dimension mismatch in 2DLagrVal (n=%d/%d, m_split=%d/%d, nnz_h=%d/%d).\n",
-                      NUMVAR, problem_info->n, NUMCON, problem_info->m_split, NHESS, problem_info->nnz_h_lag);
+               "CONOPT Shim Error: Dimension mismatch in 2DLagrVal (n=%d/%d, m_split=%d/%d, "
+               "nnz_h=%d/%d).\n",
+               NUMVAR, problem_info->n, NUMCON, problem_info->m_split, NHESS,
+               problem_info->nnz_h_lag);
       }
       return 1;
    }
@@ -965,7 +993,8 @@ int COI_CALLCONV Conopt_2DLagrVal(const double X[], const double U[],
    // Aggregate split-row multipliers into original constraint multipliers for TNLP
    std::vector<Ipopt::Number> lambda(problem_info->m, 0.0);
    for (Ipopt::Index split_row = 0; split_row < problem_info->m_split; ++split_row) {
-      if (split_row == problem_info->objective_row_index) continue; // skip objective row
+      if (split_row == problem_info->objective_row_index)
+         continue;  // skip objective row
       int orig_idx = problem_info->original_constraint_map[split_row];
       if (orig_idx >= 0 && orig_idx < problem_info->m) {
          // Both parts of a RANGE add to the same original constraint Hessian contribution
@@ -978,38 +1007,42 @@ int COI_CALLCONV Conopt_2DLagrVal(const double X[], const double U[],
    std::vector<Ipopt::Number> values(problem_info->nnz_h_lag);
    bool ok = false;
    try {
-      ok = tnlp->eval_h(problem_info->n, X, true, obj_factor,
-                        problem_info->m, lambda.data(), true,
-                        problem_info->nnz_h_lag,
-                        nullptr, nullptr, values.data());
+      ok = tnlp->eval_h(problem_info->n, X, true, obj_factor, problem_info->m, lambda.data(), true,
+            problem_info->nnz_h_lag, nullptr, nullptr, values.data());
       if (ok && GetContext(USRMEM)->stats_) {
          GetContext(USRMEM)->stats_->IncrementHessianEvaluations();
       }
-   } catch (const std::exception& e) {
-      if (jnlst) jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
-                               "CONOPT Shim: Exception in TNLP::eval_h: %s\n", e.what());
+   }
+   catch (const std::exception& e) {
+      if (jnlst)
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
+               "CONOPT Shim: Exception in TNLP::eval_h: %s\n", e.what());
       return 1;
-   } catch (...) {
-      if (jnlst) jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
-                               "CONOPT Shim: Unknown exception in TNLP::eval_h.\n");
+   }
+   catch (...) {
+      if (jnlst)
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
+               "CONOPT Shim: Unknown exception in TNLP::eval_h.\n");
       return 1;
    }
 
    if (!ok) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP,
-                      "CONOPT Shim: TNLP::eval_h returned false in 2DLagrVal.\n");
+               "CONOPT Shim: TNLP::eval_h returned false in 2DLagrVal.\n");
       }
-      return 1; // treat as critical for CONOPT
+      return 1;  // treat as critical for CONOPT
    }
 
    // Copy values into HSVL according to the sorted order recorded in 2DLagrStr
-   if (problem_info->hess_perm_sorted_to_orig.size() == static_cast<size_t>(problem_info->nnz_h_lag)) {
+   if (problem_info->hess_perm_sorted_to_orig.size() ==
+         static_cast<size_t>(problem_info->nnz_h_lag)) {
       for (Ipopt::Index k = 0; k < problem_info->nnz_h_lag; ++k) {
          Ipopt::Index orig = problem_info->hess_perm_sorted_to_orig[k];
          HSVL[k] = values[orig];
       }
-   } else {
+   }
+   else {
       // Fallback: no permutation recorded, copy in original order
       for (Ipopt::Index k = 0; k < problem_info->nnz_h_lag; ++k) {
          HSVL[k] = values[k];
@@ -1022,24 +1055,22 @@ int COI_CALLCONV Conopt_2DLagrVal(const double X[], const double U[],
 
    if (jnlst) {
       jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
-                   "CONOPT Shim: 2DLagrVal computed Hessian values (NHESS=%d).\n", NHESS);
+            "CONOPT Shim: 2DLagrVal computed Hessian values (NHESS=%d).\n", NHESS);
    }
 
    return 0;
 }
 
-
-int COI_CALLCONV Conopt_Status(int MODSTA, int SOLSTA, int ITER, double OBJVAL, void *USRMEM)
-{
+int COI_CALLCONV Conopt_Status(int MODSTA, int SOLSTA, int ITER, double OBJVAL, void* USRMEM) {
    IpoptConoptContext* context = GetContext(USRMEM);
    Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
 
    if (!context || !context->status_solution_) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                      "CONOPT Shim Error: Context or StatusSolution is NULL in Status.\n");
+               "CONOPT Shim Error: Context or StatusSolution is NULL in Status.\n");
       }
-      return 1; // Critical error
+      return 1;  // Critical error
    }
 
    // Cache the status information for later use in finalize_solution
@@ -1051,17 +1082,16 @@ int COI_CALLCONV Conopt_Status(int MODSTA, int SOLSTA, int ITER, double OBJVAL, 
 
    if (jnlst) {
       jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
-                   "CONOPT Shim: Status cached (MODSTA=%d, SOLSTA=%d, ITER=%d, OBJVAL=%g).\n",
-                   MODSTA, SOLSTA, ITER, OBJVAL);
+            "CONOPT Shim: Status cached (MODSTA=%d, SOLSTA=%d, ITER=%d, OBJVAL=%g).\n", MODSTA,
+            SOLSTA, ITER, OBJVAL);
    }
 
-   return 0; // Success
+   return 0;  // Success
 }
 
-
-int COI_CALLCONV Conopt_Solution(const double XVAL[], const double XMAR[], const int XBAS[], const int XSTA[],
-   const double YVAL[], const double YMAR[], const int YBAS[], const int YSTA[], int NUMVAR, int NUMCON, void *USRMEM)
-{
+int COI_CALLCONV Conopt_Solution(const double XVAL[], const double XMAR[], const int XBAS[],
+      const int XSTA[], const double YVAL[], const double YMAR[], const int YBAS[],
+      const int YSTA[], int NUMVAR, int NUMCON, void* USRMEM) {
    IpoptConoptContext* context = GetContext(USRMEM);
    Ipopt::IpoptProblemInfo* problem_info = GetProblemInfo(USRMEM);
    Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
@@ -1069,20 +1099,20 @@ int COI_CALLCONV Conopt_Solution(const double XVAL[], const double XMAR[], const
    if (!context || !problem_info || !context->status_solution_) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                      "CONOPT Shim Error: Context, ProblemInfo, or StatusSolution is NULL in Solution.\n");
+               "CONOPT Shim Error: Context, ProblemInfo, or StatusSolution is NULL in Solution.\n");
       }
-      return 1; // Critical error
+      return 1;  // Critical error
    }
 
    // Verify dimensions match
    if (NUMVAR != problem_info->n || NUMCON != problem_info->m_split) {
       if (jnlst) {
          jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                      "CONOPT Shim Error: Dimension mismatch in Solution. "
-                      "Expected: n=%d, m_split=%d. Got: n=%d, m=%d\n",
-                      problem_info->n, problem_info->m_split, NUMVAR, NUMCON);
+               "CONOPT Shim Error: Dimension mismatch in Solution. "
+               "Expected: n=%d, m_split=%d. Got: n=%d, m=%d\n",
+               problem_info->n, problem_info->m_split, NUMVAR, NUMCON);
       }
-      return 1; // Critical error
+      return 1;  // Critical error
    }
 
    ConoptStatusSolution* status_sol = context->status_solution_;
@@ -1113,16 +1143,16 @@ int COI_CALLCONV Conopt_Solution(const double XVAL[], const double XMAR[], const
 
    if (jnlst) {
       jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
-                   "CONOPT Shim: Solution cached (n=%d, m=%d).\n", NUMVAR, NUMCON);
+            "CONOPT Shim: Solution cached (n=%d, m=%d).\n", NUMVAR, NUMCON);
    }
 
-   return 0; // Success
+   return 0;  // Success
 }
 
-int COI_CALLCONV Conopt_Message(int SMSG, int DMSG, int NMSG, char *MSGV[], void *USRMEM)
-{
+int COI_CALLCONV Conopt_Message(int SMSG, int DMSG, int NMSG, char* MSGV[], void* USRMEM) {
    Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
-   if (!jnlst) return 0;
+   if (!jnlst)
+      return 0;
 
    // Process messages for each stream according to CONOPT documentation:
    // SMSG lines -> Screen file (immediate display, progress updates)
@@ -1134,7 +1164,7 @@ int COI_CALLCONV Conopt_Message(int SMSG, int DMSG, int NMSG, char *MSGV[], void
       std::string msg = MSGV[i];
       // Strip trailing newlines
       while (!msg.empty() && (msg.back() == '\n' || msg.back() == '\r')) {
-          msg.pop_back();
+         msg.pop_back();
       }
       // Screen messages are for immediate display - use SUMMARY level
       jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN, "%s\n", msg.c_str());
@@ -1144,7 +1174,7 @@ int COI_CALLCONV Conopt_Message(int SMSG, int DMSG, int NMSG, char *MSGV[], void
    for (int i = 0; i < NMSG && MSGV[i] != nullptr; ++i) {
       std::string msg = MSGV[i];
       while (!msg.empty() && (msg.back() == '\n' || msg.back() == '\r')) {
-          msg.pop_back();
+         msg.pop_back();
       }
       // Status messages are summaries - use SUMMARY level with SOLUTION category
       jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_SOLUTION, "CONOPT Status: %s\n", msg.c_str());
@@ -1154,7 +1184,7 @@ int COI_CALLCONV Conopt_Message(int SMSG, int DMSG, int NMSG, char *MSGV[], void
    for (int i = 0; i < DMSG && MSGV[i] != nullptr; ++i) {
       std::string msg = MSGV[i];
       while (!msg.empty() && (msg.back() == '\n' || msg.back() == '\r')) {
-          msg.pop_back();
+         msg.pop_back();
       }
       // Documentation messages are detailed - use DETAILED level with NLP category
       jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP, "CONOPT Debug: %s\n", msg.c_str());
@@ -1163,24 +1193,24 @@ int COI_CALLCONV Conopt_Message(int SMSG, int DMSG, int NMSG, char *MSGV[], void
    // Flush buffer to ensure messages are displayed immediately
    jnlst->FlushBuffer();
 
-   return 0; // Success
+   return 0;  // Success
 }
 
-
-int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char *MSG, void *USRMEM)
-{
+int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char* MSG, void* USRMEM) {
    Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
-   if (!jnlst) return 0;
+   if (!jnlst)
+      return 0;
 
    // Clean up the message
    std::string msg = MSG;
    while (!msg.empty() && (msg.back() == '\n' || msg.back() == '\r')) {
-       msg.pop_back();
+      msg.pop_back();
    }
 
    // Determine error category and level based on the type of error
    Ipopt::EJournalLevel level = Ipopt::J_ERROR;
-   Ipopt::EJournalCategory category = Ipopt::J_NLP; // Default to NLP category for model-specific errors
+   Ipopt::EJournalCategory category =
+         Ipopt::J_NLP;  // Default to NLP category for model-specific errors
 
    // Handle special cases for Base=0 (C conventions) as per CONOPT documentation:
    // COLNO = -1: message about a row (ROWNO between 0 and NumCon-1)
@@ -1191,28 +1221,34 @@ int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char *MSG,
       // Message about a row
       if (ROWNO >= 0) {
          jnlst->Printf(level, category, "CONOPT Row Error (Row %d): %s\n", ROWNO, msg.c_str());
-      } else {
+      }
+      else {
          jnlst->Printf(level, category, "CONOPT Row Error: %s\n", msg.c_str());
       }
-   } else if (ROWNO == -1) {
+   }
+   else if (ROWNO == -1) {
       // Message about a column
       if (COLNO >= 0) {
          jnlst->Printf(level, category, "CONOPT Column Error (Col %d): %s\n", COLNO, msg.c_str());
-      } else {
+      }
+      else {
          jnlst->Printf(level, category, "CONOPT Column Error: %s\n", msg.c_str());
       }
-   } else if (ROWNO >= 0 && COLNO >= 0) {
+   }
+   else if (ROWNO >= 0 && COLNO >= 0) {
       // Message about Jacobian element or (row,column)-pair
       if (POSNO >= 0) {
          // Specific Jacobian element
          jnlst->Printf(level, category, "CONOPT Jacobian Error (Row %d, Col %d, Pos %d): %s\n",
-                       ROWNO, COLNO, POSNO, msg.c_str());
-      } else {
-         // (row,column)-pair
-         jnlst->Printf(level, category, "CONOPT Matrix Error (Row %d, Col %d): %s\n",
-                       ROWNO, COLNO, msg.c_str());
+               ROWNO, COLNO, POSNO, msg.c_str());
       }
-   } else {
+      else {
+         // (row,column)-pair
+         jnlst->Printf(level, category, "CONOPT Matrix Error (Row %d, Col %d): %s\n", ROWNO, COLNO,
+               msg.c_str());
+      }
+   }
+   else {
       // General error message
       jnlst->Printf(level, category, "CONOPT Error: %s\n", msg.c_str());
    }
@@ -1220,9 +1256,8 @@ int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char *MSG,
    // Flush buffer to ensure error messages are displayed immediately
    jnlst->FlushBuffer();
 
-   return 0; // Success
+   return 0;  // Success
 }
-
 
 // ... Implementations for other trampolines (Progress, SDDir, etc.) ...
 // These will follow the same pattern: cast USRMEM, call corresponding TNLP method

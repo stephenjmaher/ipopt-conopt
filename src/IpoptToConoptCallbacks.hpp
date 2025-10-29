@@ -5,17 +5,16 @@
 #ifndef IPOPT_TO_CONOPT_CALLBACKS_HPP
 #define IPOPT_TO_CONOPT_CALLBACKS_HPP
 
-#include "conopt.h" // For COI_CALLCONV and C-API types
+#include "conopt.h"  // For COI_CALLCONV and C-API types
 #include <vector>
 
 // Forward declare Ipopt classes needed by the struct
 namespace Ipopt {
-   class TNLP;
-   class Journalist;
-   class SolveStatistics;
-   struct IpoptProblemInfo;
-}
-
+class TNLP;
+class Journalist;
+class SolveStatistics;
+struct IpoptProblemInfo;
+}  // namespace Ipopt
 
 /**
  * @brief Struct to hold cached status and solution data from CONOPT callbacks.
@@ -23,34 +22,29 @@ namespace Ipopt {
  */
 struct ConoptStatusSolution {
    // Status information
-   bool status_cached_;                   // Whether status has been cached
-   int conopt_modsta_;                    // CONOPT model status
-   int conopt_solsta_;                    // CONOPT solver status
-   int conopt_iter_;                      // CONOPT iteration count
-   double conopt_objval_;                 // CONOPT objective value
+   bool status_cached_;    // Whether status has been cached
+   int conopt_modsta_;     // CONOPT model status
+   int conopt_solsta_;     // CONOPT solver status
+   int conopt_iter_;       // CONOPT iteration count
+   double conopt_objval_;  // CONOPT objective value
 
    // Solution data
-   bool solution_cached_;                 // Whether solution has been cached
-   std::vector<double> x_solution_;       // Final variable values
-   std::vector<double> x_marginals_;      // Variable marginals (z_L/z_U)
-   std::vector<int> x_basis_;             // Variable basis indicators
-   std::vector<int> x_status_;            // Variable status indicators
-   std::vector<double> y_solution_;       // Final constraint values
-   std::vector<double> y_marginals_;      // Constraint marginals (lambda)
-   std::vector<int> y_basis_;             // Constraint basis indicators
-   std::vector<int> y_status_;            // Constraint status indicators
+   bool solution_cached_;             // Whether solution has been cached
+   std::vector<double> x_solution_;   // Final variable values
+   std::vector<double> x_marginals_;  // Variable marginals (z_L/z_U)
+   std::vector<int> x_basis_;         // Variable basis indicators
+   std::vector<int> x_status_;        // Variable status indicators
+   std::vector<double> y_solution_;   // Final constraint values
+   std::vector<double> y_marginals_;  // Constraint marginals (lambda)
+   std::vector<int> y_basis_;         // Constraint basis indicators
+   std::vector<int> y_status_;        // Constraint status indicators
 
    /**
     * @brief Constructor for ConoptStatusSolution
     */
    ConoptStatusSolution()
-      : status_cached_(false),
-        conopt_modsta_(0),
-        conopt_solsta_(0),
-        conopt_iter_(0),
-        conopt_objval_(0.0),
-        solution_cached_(false) {
-   }
+       : status_cached_(false), conopt_modsta_(0), conopt_solsta_(0), conopt_iter_(0),
+         conopt_objval_(0.0), solution_cached_(false) {}
 
    /**
     * @brief Reset all cached data
@@ -78,17 +72,17 @@ struct ConoptStatusSolution {
  * This stores the results of constraint evaluations and jacobian with constant lookup time.
  */
 struct FDEvalCache {
-   std::vector<double> constraint_values_;  // Cached constraint values (size = numcons)
-   double objective_value_;                // Cached objective value
-   bool objective_valid_;                  // Whether objective value is valid
-   std::vector<double> objective_gradient_; // Cached objective gradient (size = n)
-   bool objective_gradient_valid_;         // Whether objective gradient is valid
-   std::vector<double> jacobian_values_;   // Cached jacobian values (size = nnz_jac_g)
-   std::vector<bool> jacobian_valid_;      // Validity flags for jacobian entries
-   bool jacobian_cached_;                  // Whether jacobian has been cached
-   int num_constraints_;                   // Number of constraints (for bounds checking)
-   int nnz_jacobian_;                      // Number of non-zero jacobian entries
-   int num_variables_;                     // Number of variables (for objective gradient)
+   std::vector<double> constraint_values_;   // Cached constraint values (size = numcons)
+   double objective_value_;                  // Cached objective value
+   bool objective_valid_;                    // Whether objective value is valid
+   std::vector<double> objective_gradient_;  // Cached objective gradient (size = n)
+   bool objective_gradient_valid_;           // Whether objective gradient is valid
+   std::vector<double> jacobian_values_;     // Cached jacobian values (size = nnz_jac_g)
+   std::vector<bool> jacobian_valid_;        // Validity flags for jacobian entries
+   bool jacobian_cached_;                    // Whether jacobian has been cached
+   int num_constraints_;                     // Number of constraints (for bounds checking)
+   int nnz_jacobian_;                        // Number of non-zero jacobian entries
+   int num_variables_;                       // Number of variables (for objective gradient)
 
    /**
     * @brief Constructor for FDEvalCache
@@ -97,13 +91,9 @@ struct FDEvalCache {
     * @param num_variables Number of variables (for objective gradient)
     */
    FDEvalCache(int num_constraints, int nnz_jacobian, int num_variables)
-      : num_constraints_(num_constraints),
-        nnz_jacobian_(nnz_jacobian),
-        num_variables_(num_variables),
-        objective_value_(0.0),
-        objective_valid_(false),
-        objective_gradient_valid_(false),
-        jacobian_cached_(false) {
+       : num_constraints_(num_constraints), nnz_jacobian_(nnz_jacobian),
+         num_variables_(num_variables), objective_value_(0.0), objective_valid_(false),
+         objective_gradient_valid_(false), jacobian_cached_(false) {
       constraint_values_.resize(num_constraints, 0.0);
       objective_gradient_.resize(num_variables, 0.0);
       jacobian_values_.resize(nnz_jacobian, 0.0);
@@ -195,8 +185,8 @@ typedef struct {
    Ipopt::Journalist* journalist_;
    Ipopt::SolveStatistics* stats_;
    Ipopt::IpoptProblemInfo* problem_info_;
-   FDEvalCache* fdeval_cache_;            // Cache for FDEvalIni optimization
-   ConoptStatusSolution* status_solution_; // Cache for status and solution data
+   FDEvalCache* fdeval_cache_;              // Cache for FDEvalIni optimization
+   ConoptStatusSolution* status_solution_;  // Cache for status and solution data
 } IpoptConoptContext;
 
 /**
@@ -282,34 +272,35 @@ bool PopulateSolveStatistics(IpoptConoptContext* context);
 extern "C" {
 #endif
 
-int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[], int VSTA[], int TYPE[],
-   double RHS[], int ESTA[], int COLSTA[], int ROWNO[], double VALUE[], int NLFLAG[], int NUMVAR, int NUMCON,
-   int NUMNZ, void *USRMEM);
+int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[], int VSTA[],
+      int TYPE[], double RHS[], int ESTA[], int COLSTA[], int ROWNO[], double VALUE[], int NLFLAG[],
+      int NUMVAR, int NUMCON, int NUMNZ, void* USRMEM);
 
-int COI_CALLCONV Conopt_FDEval(const double X[], double *G, double JAC[], int ROWNO, const int JACNUM[], int MODE,
-   int IGNERR, int *ERRCNT, int NUMVAR, int NUMJAC, int THREAD, void *USRMEM);
+int COI_CALLCONV Conopt_FDEval(const double X[], double* G, double JAC[], int ROWNO,
+      const int JACNUM[], int MODE, int IGNERR, int* ERRCNT, int NUMVAR, int NUMJAC, int THREAD,
+      void* USRMEM);
 
-int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MODE, int LISTSIZE, int NUMTHREAD,
-   int IGNERR, int *ERRCNT, int NUMVAR, void *USRMEM);
+int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MODE, int LISTSIZE,
+      int NUMTHREAD, int IGNERR, int* ERRCNT, int NUMVAR, void* USRMEM);
 
-int COI_CALLCONV Conopt_FDEvalEnd(int IGNERR, int *ERRCNT, void *USRMEM);
+int COI_CALLCONV Conopt_FDEvalEnd(int IGNERR, int* ERRCNT, void* USRMEM);
 
-int COI_CALLCONV Conopt_Status(int MODSTA, int SOLSTA, int ITER, double OBJVAL, void *USRMEM);
+int COI_CALLCONV Conopt_Status(int MODSTA, int SOLSTA, int ITER, double OBJVAL, void* USRMEM);
 
-int COI_CALLCONV Conopt_Solution(const double XVAL[], const double XMAR[], const int XBAS[], const int XSTA[],
-   const double YVAL[], const double YMAR[], const int YBAS[], const int YSTA[], int NUMVAR, int NUMCON, void *USRMEM);
+int COI_CALLCONV Conopt_Solution(const double XVAL[], const double XMAR[], const int XBAS[],
+      const int XSTA[], const double YVAL[], const double YMAR[], const int YBAS[],
+      const int YSTA[], int NUMVAR, int NUMCON, void* USRMEM);
 
-int COI_CALLCONV Conopt_Message(int SMSG, int DMSG, int NMSG, char *MSGV[], void *USRMEM);
+int COI_CALLCONV Conopt_Message(int SMSG, int DMSG, int NMSG, char* MSGV[], void* USRMEM);
 
-int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char *MSG, void *USRMEM);
+int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char* MSG, void* USRMEM);
 
 // Hessian of the Lagrangian structure and values
-int COI_CALLCONV Conopt_2DLagrStr(int HSRW[], int HSCL[], int *NODRV,
-   int NUMVAR, int NUMCON, int NHESS, void *USRMEM);
+int COI_CALLCONV Conopt_2DLagrStr(
+      int HSRW[], int HSCL[], int* NODRV, int NUMVAR, int NUMCON, int NHESS, void* USRMEM);
 
-int COI_CALLCONV Conopt_2DLagrVal(const double X[], const double U[],
-   const int HSRW[], const int HSCL[], double HSVL[], int *NODRV,
-   int NUMVAR, int NUMCON, int NHESS, void *USRMEM);
+int COI_CALLCONV Conopt_2DLagrVal(const double X[], const double U[], const int HSRW[],
+      const int HSCL[], double HSVL[], int* NODRV, int NUMVAR, int NUMCON, int NHESS, void* USRMEM);
 
 // ... and so on for all other callbacks (Progress, Option, TriOrd, SDDir, etc.) ...
 
@@ -317,4 +308,4 @@ int COI_CALLCONV Conopt_2DLagrVal(const double X[], const double U[],
 }
 #endif
 
-#endif // IPOPT_TO_CONOPT_CALLBACKS_HPP
+#endif  // IPOPT_TO_CONOPT_CALLBACKS_HPP

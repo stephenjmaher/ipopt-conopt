@@ -31,10 +31,10 @@ ADDINCFLAGS =
 CXX = g++
 
 # C++ Compiler options
-CXXFLAGS = -O2 -DNDEBUG 
+CXXFLAGS = -g -O0 -DDEBUG 
 
 # additional C++ Compiler options for linking
-CXXLINKFLAGS = -Wl,--rpath -Wl,/home/maher/Documents/GAMS/Development/conopt/ipopt-conopt/external/conopt-linux-x86_64/lib -Wl,--rpath -Wl,/home/maher/Documents/GAMS/Development/conopt/ipopt-conopt/external/ipopt/install/lib
+CXXLINKFLAGS = -Wl,--rpath -Wl,/home/maher/Documents/GAMS/Development/conopt/conopt/debug/lib -Wl,--rpath -Wl,/home/maher/Documents/GAMS/Development/conopt/ipopt-conopt/external/ipopt/install/lib
 
 # CONOPT paths
 CONOPT_ROOT = /home/maher/Documents/GAMS/Development/conopt/ipopt-conopt

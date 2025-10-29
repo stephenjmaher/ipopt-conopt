@@ -16,12 +16,12 @@ const Number IPOPT_NEG_INFINITY = -std::numeric_limits<Number>::infinity();
 
 // Utility function to check if a number is finite
 inline bool IsFiniteNumber(Number val) {
-    return std::isfinite(val);
+   return std::isfinite(val);
 }
 
 // Note: SolverReturn and other enums are now provided by the real IPOPT headers
 // This file only provides the basic type definitions and utility functions
 
-} // namespace Ipopt
+}  // namespace Ipopt
 
-#endif // IPOPT_TYPES_HPP
+#endif  // IPOPT_TYPES_HPP
