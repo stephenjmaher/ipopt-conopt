@@ -23,53 +23,63 @@ namespace {
  * @return Corresponding Ipopt ApplicationReturnStatus
  */
 Ipopt::ApplicationReturnStatus ConvertConoptToIpoptStatus(int modsta, int solsta) {
-   // Map CONOPT MODSTA (Model Status) to Ipopt ApplicationReturnStatus
-   switch (modsta) {
-      case 1:  // Optimal
-      case 15: // Solved Unique
-      case 16: // Solved
-      case 17: // Solved Singular
-         return Ipopt::Solve_Succeeded;
-      case 2:  // Locally Infeasible
-         return Ipopt::Infeasible_Problem_Detected;
-      case 3:  // Unbounded
-         return Ipopt::Diverging_Iterates;
-      case 4:  // Interrupted
-         return Ipopt::User_Requested_Stop;
-      case 5:  // Locally Solved
-         return Ipopt::Solved_To_Acceptable_Level;
-      case 6:  // Infeasible
-         return Ipopt::Infeasible_Problem_Detected;
-      case 7:  // Unbounded - No Solution
-         return Ipopt::Diverging_Iterates;
-      case 8:  // User Interrupt
-         return Ipopt::User_Requested_Stop;
-      case 9:  // Error: Setup failure
-      case 10: // Error: Solver failure
-      case 11: // Error: Internal solver error
-         return Ipopt::Internal_Error;
-      default:
-         // For unknown status codes, check SOLSTA (Solver Status)
-         switch (solsta) {
-            case 1:  // Normal completion
+   // Handle explicit user stop by MODSTA regardless of SOLSTA
+   if (modsta == 10) {
+      return Ipopt::User_Requested_Stop;
+   }
+
+   switch (solsta) {
+      case 1: { // Normal completion
+         switch (modsta) {
+            case 1: // Optimal
+            case 2: // Locally Optimal
+            case 7: // Feasible Solution
                return Ipopt::Solve_Succeeded;
-            case 2:  // Iteration interrupt
-               return Ipopt::Maximum_Iterations_Exceeded;
-            case 3:  // Time limit
-               return Ipopt::Maximum_CpuTime_Exceeded;
-            case 4:  // Other interrupt
-               return Ipopt::User_Requested_Stop;
-            case 5:  // Singular
-               return Ipopt::Search_Direction_Becomes_Too_Small;
-            case 6:  // Unbounded
-               return Ipopt::Diverging_Iterates;
-            case 7:  // Infeasible
+            case 4: // Locally Infeasible
+            case 5: // Infeasible
                return Ipopt::Infeasible_Problem_Detected;
-            case 8:  // Error
-               return Ipopt::Internal_Error;
+            default:
+               return Ipopt::Solved_To_Acceptable_Level; // conservative success fallback
+         }
+      }
+      case 2: // Iteration Interrupt
+         return Ipopt::Maximum_Iterations_Exceeded;
+      case 3: // Resource/CPU Time
+         return Ipopt::Maximum_CpuTime_Exceeded;
+      case 4: { // Terminated by Solver
+         switch (modsta) {
+            case 4: // Locally Infeasible (termination)
+               return Ipopt::Restoration_Failed;
+            case 6: // Intermediate Infeasible (termination)
+               return Ipopt::Search_Direction_Becomes_Too_Small;
+            case 3: // Unbounded (termination)
+               return Ipopt::Diverging_Iterates;
+            case 5: // Infeasible (termination)
+               return Ipopt::Infeasible_Problem_Detected;
+            case 13: // Error No Solution (termination)
+               return Ipopt::Error_In_Step_Computation;
             default:
                return Ipopt::Internal_Error;
          }
+      }
+      case 5: // Evaluation Error Limit
+         return Ipopt::Invalid_Number_Detected;
+      case 6: // Error
+         return Ipopt::Internal_Error;
+      case 8: // User Interrupt
+         return Ipopt::User_Requested_Stop;
+      case 9: // Out of Memory
+         return Ipopt::Insufficient_Memory;
+      case 10: { // System Error / Invalid setup/options
+         switch (modsta) {
+            case 13:
+               return Ipopt::Invalid_Problem_Definition; // or Invalid_Option
+            default:
+               return Ipopt::Internal_Error;
+         }
+      }
+      default:
+         return Ipopt::Internal_Error;
    }
 }
 
@@ -769,9 +779,9 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
             // Cache constraint values for ALL split rows by mapping to original constraint indices
             for (Ipopt::Index split_row = 0; split_row < problem_info->m_split - 1; ++split_row) {
                Ipopt::Index orig_idx = problem_info->original_constraint_map[split_row];
-              if (orig_idx >= 0 && orig_idx < problem_info->m) {
-                 cache->constraint_values_[split_row] = all_g[orig_idx];
-              }
+               if (orig_idx >= 0 && orig_idx < problem_info->m) {
+                  cache->constraint_values_[split_row] = all_g[orig_idx];
+               }
             }
          }
 
