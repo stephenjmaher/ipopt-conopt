@@ -183,6 +183,52 @@ class IpoptApplication : public ReferencedObject {
          return Invalid_Problem_Definition;
       }
 
+      /*  3.5. Get scaling parameters
+       *  Prepare arrays for scaling factors
+       *
+       *  TODO: apply the scaling to the problem
+       */
+      std::vector<Number> x_scaling_temp(problem_info_.n);
+      std::vector<Number> g_scaling_temp(problem_info_.m);
+      Number obj_scaling_temp = 1.0;
+      bool use_x_scaling_temp = false;
+      bool use_g_scaling_temp = false;
+
+      /*  Call get_scaling_parameters - it may return false if not implemented, which is OK */
+      if (tnlp->get_scaling_parameters(obj_scaling_temp, use_x_scaling_temp, problem_info_.n,
+                x_scaling_temp.data(), use_g_scaling_temp, problem_info_.m,
+                g_scaling_temp.data())) {
+         /*  Scaling parameters were provided - store them */
+         problem_info_.obj_scaling = obj_scaling_temp;
+         problem_info_.use_x_scaling = use_x_scaling_temp;
+         problem_info_.use_g_scaling = use_g_scaling_temp;
+
+         if (use_x_scaling_temp) {
+            problem_info_.x_scaling = x_scaling_temp;
+         }
+         if (use_g_scaling_temp) {
+            problem_info_.g_scaling = g_scaling_temp;
+         }
+
+         if (!IsNull(jnlst_)) {
+            jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
+                  "CONOPT Shim: Scaling parameters retrieved (obj_scaling=%g, use_x_scaling=%s, \n"
+                  "use_g_scaling=%s).\n",
+                  obj_scaling_temp, use_x_scaling_temp ? "true" : "false",
+                  use_g_scaling_temp ? "true" : "false");
+         }
+      }
+      else {
+         /*  Scaling parameters not provided - use defaults */
+         problem_info_.obj_scaling = 1.0;
+         problem_info_.use_x_scaling = false;
+         problem_info_.use_g_scaling = false;
+         if (!IsNull(jnlst_)) {
+            jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
+                  "CONOPT Shim: No scaling parameters provided, using defaults.\n");
+         }
+      }
+
       /*  4. Get Jacobian structure (if needed) */
       if (problem_info_.nnz_jac_g > 0) {
          if (!tnlp->eval_jac_g(problem_info_.n, problem_info_.x_init.data(), true, problem_info_.m,

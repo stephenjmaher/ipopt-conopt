@@ -104,14 +104,22 @@ struct IpoptProblemInfo {
    bool init_lambda_req;          /*  Whether initial lambda values is required from the user */
    bool has_variable_linearity;   /*  Whether variable linearity info was provided */
    bool has_constraint_linearity; /*  Whether constraint linearity info was provided */
-   bool has_nonlinear_vars;       /*  Whether nonlinear variable count was provided */
+   bool has_nonlinear_vars;        /*  Whether nonlinear variable count was provided */
+
+   /*  === Scaling Parameters === */
+   Number obj_scaling;                  /*  Objective function scaling factor */
+   bool use_x_scaling;                  /*  Whether variable scaling is used */
+   std::vector<Number> x_scaling;       /*  Variable scaling factors (length n) */
+   bool use_g_scaling;                  /*  Whether constraint scaling is used */
+   std::vector<Number> g_scaling;       /*  Constraint scaling factors (length m) */
 
    /*  === Constructor === */
    IpoptProblemInfo()
        : n(0), m(0), nnz_jac_g(0), nnz_h_lag(0), index_style(C_STYLE), m_split(0),
          objective_row_index(-1), nnz_jac_g_split(0), num_nonlin_vars(0), init_x_req(true),
          init_z_req(false), init_lambda_req(false), has_variable_linearity(false),
-         has_constraint_linearity(false), has_nonlinear_vars(false) {}
+         has_constraint_linearity(false), has_nonlinear_vars(false), obj_scaling(1.0),
+         use_x_scaling(false), use_g_scaling(false) {}
 
    /*  === Utility Methods === */
 
@@ -138,6 +146,8 @@ struct IpoptProblemInfo {
       hess_iRow.resize(nnz_h_lag);
       hess_jCol.resize(nnz_h_lag);
       hess_values.resize(nnz_h_lag);
+
+      /*  Note: Scaling vectors are allocated separately when get_scaling_parameters is called */
    }
 
    /**
@@ -452,6 +462,13 @@ struct IpoptProblemInfo {
       split_constraint_map.clear();
       jacobian_split_map.clear();
       jacobian_split_rows.clear();
+
+      /*  Clear scaling parameters */
+      obj_scaling = 1.0;
+      use_x_scaling = false;
+      use_g_scaling = false;
+      x_scaling.clear();
+      g_scaling.clear();
 
       /* by default, as initial x is required. An initial z or lambda is not required. */
       init_x_req = true;
