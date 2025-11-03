@@ -7,6 +7,7 @@
 #include "IpTNLP.hpp"
 #include "IpJournalist.hpp"
 #include "Ipopt/IpSolveStatistics.hpp"
+#include "IpAlgTypes.hpp"
 #include "IpoptProblemInfo.hpp"
 #include <cassert>
 #include <vector>
@@ -1282,8 +1283,120 @@ int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char* MSG,
    return 0; /*  Success */
 }
 
+/**
+ * @brief CONOPT Progress callback - Algorithmic Progress
+ *
+ * This optional callback is called at the end of each iteration to report
+ * algorithmic progress. It bridges to Ipopt's intermediate_callback method,
+ * allowing user code to monitor progress and request early termination.
+ *
+ * @param LEN_INT Number of elements in INT array (currently 5)
+ * @param INT Integer array containing: [ITER, PHASE, NUMINF, NUMNOP, NSUPER]
+ * @param LEN_RL Number of elements in RL array (currently 4)
+ * @param RL Real array containing: [SUMINF, OBJVAL, RGMAX, STEP]
+ * @param X Current point (read-only)
+ * @param USRMEM User memory pointer containing IpoptConoptContext
+ * @return 0 to continue, non-zero to request termination
+ */
+int COI_CALLCONV Conopt_Progress(int LEN_INT, const int INT[], int LEN_RL, const double RL[],
+      const double X[], void* USRMEM) {
+   IpoptConoptContext* context = GetContext(USRMEM);
+   Ipopt::TNLP* tnlp = GetTNLP(USRMEM);
+   Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
+   Ipopt::IpoptProblemInfo* problem_info = GetProblemInfo(USRMEM);
+
+   if (!tnlp || !problem_info) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+               "CONOPT Shim Error: TNLP or ProblemInfo is NULL in Progress.\n");
+      }
+      return 0; /*  Continue optimization despite error */
+   }
+
+   /*  Validate array lengths */
+   if (LEN_INT < 5 || LEN_RL < 4) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_MAIN,
+               "CONOPT Shim Warning: Progress callback received insufficient data "
+               "(LEN_INT=%d, LEN_RL=%d).\n",
+               LEN_INT, LEN_RL);
+      }
+      return 0; /*  Continue optimization */
+   }
+
+   /*  Extract CONOPT progress information */
+   const int iter = INT[0];      /*  ITER: Number of the iteration */
+   const int phase = INT[1];      /*  PHASE: Phase of optimization (0-5) */
+   const int numinf = INT[2];     /*  NUMINF: Number of infeasible constraints */
+   /*  INT[3] = NUMNOP: Number of non-optimal variables (not used) */
+   /*  INT[4] = NSUPER: Number of super-basic variables (not used) */
+
+   const double suminf = RL[0];   /*  SUMINF: Sum of infeasibilities */
+   const double objval = RL[1];   /*  OBJVAL: Value of true objective function */
+   const double rgmax = RL[2];    /*  RGMAX: Numerically largest reduced gradient */
+   const double step = RL[3];     /*  STEP: Optimal steplength */
+
+   /*  Map CONOPT phase to Ipopt AlgorithmMode */
+   /*  CONOPT phases: 0=infeasible Newton, 1-2=infeasible GRG, 3-4=feasible GRG, 5=SQP */
+   /*  Ipopt modes: RegularMode=0, RestorationPhaseMode=1 */
+   Ipopt::AlgorithmMode mode = Ipopt::RegularMode;
+   if (phase == 0 || phase == 1 || phase == 2) {
+      /*  Phases 0-2 are feasibility phases, similar to Ipopt's restoration phase */
+      mode = Ipopt::RestorationPhaseMode;
+   }
+
+   /*  Map CONOPT data to Ipopt intermediate_callback parameters */
+   /*  Many Ipopt parameters don't have direct CONOPT equivalents, so we use defaults */
+   Ipopt::Index ipopt_iter = static_cast<Ipopt::Index>(iter);
+   Ipopt::Number ipopt_obj_value = objval;
+   Ipopt::Number ipopt_inf_pr = suminf; /*  Primal infeasibility */
+   Ipopt::Number ipopt_inf_du = rgmax;  /*  Dual infeasibility (reduced gradient) */
+   Ipopt::Number ipopt_mu = 0.0;        /*  Barrier parameter - not available from CONOPT */
+   Ipopt::Number ipopt_d_norm = step;   /*  Step length approximates search direction norm */
+   Ipopt::Number ipopt_regularization_size = 0.0; /*  Not available from CONOPT */
+   Ipopt::Number ipopt_alpha_du = step; /*  Use step length as approximation */
+   Ipopt::Number ipopt_alpha_pr = step; /*  Use step length as approximation */
+   Ipopt::Index ipopt_ls_trials = 0;    /*  Line search trials - not available from CONOPT */
+
+   /*  Note: ip_data and ip_cq are not available in CONOPT, so we pass nullptr */
+   bool should_continue = true;
+   try {
+      should_continue = tnlp->intermediate_callback(mode, ipopt_iter, ipopt_obj_value,
+            ipopt_inf_pr, ipopt_inf_du, ipopt_mu, ipopt_d_norm, ipopt_regularization_size,
+            ipopt_alpha_du, ipopt_alpha_pr, ipopt_ls_trials, nullptr, nullptr);
+   }
+   catch (const std::exception& e) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
+               "CONOPT Shim: Exception in intermediate_callback: %s\n", e.what());
+      }
+      /*  On exception, continue optimization */
+      should_continue = true;
+   }
+   catch (...) {
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
+               "CONOPT Shim: Unknown exception in intermediate_callback.\n");
+      }
+      /*  On exception, continue optimization */
+      should_continue = true;
+   }
+
+   /*  CONOPT: return non-zero to request termination */
+   /*  Ipopt: return false to request termination */
+   /*  So we invert the boolean */
+   if (jnlst) {
+      jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
+            "CONOPT Shim: Progress callback (iter=%d, phase=%d, obj=%g, suminf=%g, "
+            "rgmax=%g, continue=%s)\n",
+            iter, phase, objval, suminf, rgmax, should_continue ? "yes" : "no");
+   }
+
+   return should_continue ? 0 : 1; /*  0 = continue, 1 = stop */
+}
+
 /*
- * ... Implementations for other trampolines (Progress, SDDir, etc.) ...
+ * ... Implementations for other trampolines (SDDir, etc.) ...
  * These will follow the same pattern: cast USRMEM, call corresponding TNLP method
  * (if one exists), translate arguments/results. Many might be simple stubs
  * if Ipopt doesn't have a direct equivalent.

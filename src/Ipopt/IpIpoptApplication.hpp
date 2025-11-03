@@ -366,7 +366,7 @@ class IpoptApplication : public ReferencedObject {
          return Internal_Error;
       }
 
-      /*  ... (Register all others: Progress, SDDir, etc.) ... */
+      /*  ... (Register all others: SDDir, etc.) ... */
 
       /*  --- Set up CONOPT problem information --- */
       if (!SetupConoptProblem()) {

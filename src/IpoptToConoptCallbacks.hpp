@@ -302,7 +302,11 @@ int COI_CALLCONV Conopt_2DLagrStr(
 int COI_CALLCONV Conopt_2DLagrVal(const double X[], const double U[], const int HSRW[],
       const int HSCL[], double HSVL[], int* NODRV, int NUMVAR, int NUMCON, int NHESS, void* USRMEM);
 
-/*  ... and so on for all other callbacks (Progress, Option, TriOrd, SDDir, etc.) ... */
+/*  Progress callback for intermediate iteration reporting */
+int COI_CALLCONV Conopt_Progress(int LEN_INT, const int INT[], int LEN_RL, const double RL[],
+      const double X[], void* USRMEM);
+
+/*  ... and so on for all other callbacks (Option, TriOrd, SDDir, etc.) ... */
 
 #ifdef __cplusplus
 }
