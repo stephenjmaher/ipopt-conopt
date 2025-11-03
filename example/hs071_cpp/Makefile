@@ -30,25 +30,45 @@ ADDINCFLAGS =
 # C++ Compiler command
 CXX = g++
 
-# C++ Compiler options
-CXXFLAGS = -g -O0 -DDEBUG 
+# CONOPT paths and build options (must be specified: make CONOPT_ROOT=/path/to/ipopt-conopt CONOPT_LIB=/path/to/conopt/lib IPOPT_LIB=/path/to/ipopt/lib [OPT=dbg|opt])
+ifndef CONOPT_ROOT
+$(error CONOPT_ROOT is not set. Please specify: make CONOPT_ROOT=/path/to/ipopt-conopt CONOPT_LIB=/path/to/conopt/lib IPOPT_LIB=/path/to/ipopt/lib [OPT=dbg|opt])
+endif
+ifndef CONOPT_LIB
+$(error CONOPT_LIB is not set. Please specify: make CONOPT_ROOT=/path/to/ipopt-conopt CONOPT_LIB=/path/to/conopt/lib IPOPT_LIB=/path/to/ipopt/lib [OPT=dbg|opt])
+endif
+ifndef IPOPT_LIB
+$(error IPOPT_LIB is not set. Please specify: make CONOPT_ROOT=/path/to/ipopt-conopt CONOPT_LIB=/path/to/conopt/lib IPOPT_LIB=/path/to/ipopt/lib [OPT=dbg|opt])
+endif
 
-# additional C++ Compiler options for linking
-CXXLINKFLAGS = -Wl,--rpath -Wl,/home/maher/Documents/GAMS/Development/conopt/conopt/debug/lib -Wl,--rpath -Wl,/home/maher/Documents/GAMS/Development/conopt/ipopt-conopt/external/ipopt/install/lib
+# OPT defaults to 'opt' if not specified
+OPT ?= opt
+ifneq ($(OPT),dbg)
+ifneq ($(OPT),opt)
+$(error OPT must be either 'dbg' or 'opt'. Please specify: make OPT=dbg or make OPT=opt)
+endif
+endif
 
-# CONOPT paths
-CONOPT_ROOT = /home/maher/Documents/GAMS/Development/conopt/ipopt-conopt
-CONOPT_LIB = $(CONOPT_ROOT)/external/conopt-linux-x86_64/lib
+CONOPT_EXTERNAL_LIB = $(CONOPT_ROOT)/external/conopt-linux-x86_64/lib
 CONOPT_INC = $(CONOPT_ROOT)/external/conopt-linux-x86_64/include
-IPOPT_LIB = $(CONOPT_ROOT)/external/ipopt/install/lib
 IPOPT_INC = $(CONOPT_ROOT)/external/ipopt/install/include/coin-or
 SHIM_INC = $(CONOPT_ROOT)/src
+
+# C++ Compiler options (set based on OPT)
+ifeq ($(OPT),dbg)
+CXXFLAGS = -g -O0 -DDEBUG
+else
+CXXFLAGS = -O2 -DNDEBUG
+endif
+
+# additional C++ Compiler options for linking
+CXXLINKFLAGS = -Wl,--rpath -Wl,$(CONOPT_LIB) -Wl,--rpath -Wl,$(IPOPT_LIB)
 
 # Include directories
 INCL = -I$(CONOPT_INC) -I$(SHIM_INC) -I$(SHIM_INC)/Ipopt -I$(IPOPT_INC) $(ADDINCFLAGS)
 
 # Linker flags
-LIBS = -L$(CONOPT_LIB) -L$(IPOPT_LIB) -lconopt -lipopt -lstdc++ -lm -ldl
+LIBS = -L$(CONOPT_EXTERNAL_LIB) -L$(IPOPT_LIB) -lconopt -lipopt -lstdc++ -lm -ldl
 
 all: $(EXE)
 
