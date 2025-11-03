@@ -31,6 +31,8 @@ ADDINCFLAGS =
 CXX = g++
 
 # CONOPT paths and build options (must be specified: make CONOPT_ROOT=/path/to/ipopt-conopt CONOPT_LIB=/path/to/conopt/lib IPOPT_LIB=/path/to/ipopt/lib [OPT=dbg|opt])
+# Only check for these variables if not running clean target (or if clean is not the only target)
+ifeq ($(filter clean,$(MAKECMDGOALS)),)
 ifndef CONOPT_ROOT
 $(error CONOPT_ROOT is not set. Please specify: make CONOPT_ROOT=/path/to/ipopt-conopt CONOPT_LIB=/path/to/conopt/lib IPOPT_LIB=/path/to/ipopt/lib [OPT=dbg|opt])
 endif
@@ -39,6 +41,7 @@ $(error CONOPT_LIB is not set. Please specify: make CONOPT_ROOT=/path/to/ipopt-c
 endif
 ifndef IPOPT_LIB
 $(error IPOPT_LIB is not set. Please specify: make CONOPT_ROOT=/path/to/ipopt-conopt CONOPT_LIB=/path/to/conopt/lib IPOPT_LIB=/path/to/ipopt/lib [OPT=dbg|opt])
+endif
 endif
 
 # OPT defaults to 'opt' if not specified
