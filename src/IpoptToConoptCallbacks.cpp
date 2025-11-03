@@ -545,17 +545,15 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double* G, double JAC[], int RO
    }
 
    /*  --- Adjust ROWNO based on Base --- */
-   /*  CONOPT doc mentions Base determines if ROWNO is 0/1 based. Ipopt is always C-style (0-based).
+   /*  CONOPT always uses 0-based indexing (C_STYLE) regardless of Ipopt's index style.
+    *  The shim converts FORTRAN indices (1-based) from Ipopt to C-style (0-based) for CONOPT.
+    *  The objective function is now the last row in the constraint matrix.
     */
-   /*
-    * We assume CONOPT uses 0-based indexing (C_STYLE).
-    * The objective function is now the last row in the constraint matrix.
-    */
-   bool is_objective = (ROWNO == problem_info->objective_row_index); /*  CONOPT is 0-based */
+   bool is_objective = (ROWNO == problem_info->objective_row_index); /*  CONOPT uses 0-based */
    Ipopt::Index conopt_constraint_idx = -1;
    Ipopt::Index ipopt_constraint_idx = -1;
    if (!is_objective) {
-      conopt_constraint_idx = ROWNO; /*  CONOPT uses 0-based indexing */
+      conopt_constraint_idx = ROWNO; /*  CONOPT always uses 0-based indexing */
       if (conopt_constraint_idx < 0 || conopt_constraint_idx >= problem_info->m_split) {
          if (jnlst)
             jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
@@ -869,9 +867,15 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
          }
 
          /*  Evaluate all jacobian values */
+         /*  Note: According to Ipopt documentation, structure arrays (iRow, jCol) should only
+          *  be provided on the first call. Subsequent calls for values should pass nullptr.
+          *  The structure was already retrieved in RetrieveProblemInfo.
+          */
          std::vector<Ipopt::Number> jacobian_values(problem_info->nnz_jac_g);
+
          if (!tnlp->eval_jac_g(problem_info->n, X, true, problem_info->m, problem_info->nnz_jac_g,
-                   problem_info->jac_g_iRow.data(), problem_info->jac_g_jCol.data(),
+                   nullptr, /*  Structure arrays not needed for value evaluation */
+                   nullptr, /*  Structure arrays not needed for value evaluation */
                    jacobian_values.data())) {
             if (jnlst) {
                jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP,
@@ -1023,12 +1027,19 @@ int COI_CALLCONV Conopt_2DLagrVal(const double X[], const double U[], const int 
    /*
     * Request Hessian values from TNLP at X with obj_factor and aggregated lambda
     * Values are expected in the same order as the structure we stored in problem_info_
+    * Note: According to Ipopt documentation, structure arrays (iRow, jCol) should only
+    * be provided on the first call. Subsequent calls for values should pass nullptr.
+    * The structure was already retrieved in RetrieveProblemInfo.
     */
    std::vector<Ipopt::Number> values(problem_info->nnz_h_lag);
+
    bool ok = false;
    try {
       ok = tnlp->eval_h(problem_info->n, X, true, obj_factor, problem_info->m, lambda.data(), true,
-            problem_info->nnz_h_lag, nullptr, nullptr, values.data());
+            problem_info->nnz_h_lag,
+            nullptr, /*  Structure arrays not needed for value evaluation */
+            nullptr, /*  Structure arrays not needed for value evaluation */
+            values.data());
       if (ok && GetContext(USRMEM)->stats_) {
          GetContext(USRMEM)->stats_->IncrementHessianEvaluations();
       }
@@ -1220,6 +1231,7 @@ int COI_CALLCONV Conopt_Message(int SMSG, int DMSG, int NMSG, char* MSGV[], void
 
 int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char* MSG, void* USRMEM) {
    Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
+   Ipopt::IpoptProblemInfo* problem_info = GetProblemInfo(USRMEM);
    if (!jnlst)
       return 0;
 
@@ -1235,7 +1247,23 @@ int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char* MSG,
          Ipopt::J_NLP; /*  Default to NLP category for model-specific errors */
 
    /*
-    * Handle special cases for Base=0 (C conventions) as per CONOPT documentation:
+    * CONOPT always uses C-style 0-based indexing, but if the user's TNLP uses FORTRAN indexing,
+    * we need to convert the indices for display. ROWNO and COLNO from CONOPT are C-style (0-based).
+    */
+   int display_row = ROWNO;
+   int display_col = COLNO;
+   if (problem_info && problem_info->index_style == Ipopt::FORTRAN_STYLE) {
+      /*  Convert C-style indices to FORTRAN-style (1-based) for display */
+      if (ROWNO >= 0) {
+         display_row = ROWNO + 1;
+      }
+      if (COLNO >= 0) {
+         display_col = COLNO + 1;
+      }
+   }
+
+   /*
+    * Handle special cases for CONOPT (always uses C-style 0-based indexing):
     * COLNO = -1: message about a row (ROWNO between 0 and NumCon-1)
     * ROWNO = -1: message about a column (COLNO between 0 and NumVar-1)
     * ROWNO and COLNO both non-negative: message about Jacobian element or (row,column)-pair
@@ -1244,7 +1272,7 @@ int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char* MSG,
    if (COLNO == -1) {
       /*  Message about a row */
       if (ROWNO >= 0) {
-         jnlst->Printf(level, category, "CONOPT Row Error (Row %d): %s\n", ROWNO, msg.c_str());
+         jnlst->Printf(level, category, "CONOPT Row Error (Row %d): %s\n", display_row, msg.c_str());
       }
       else {
          jnlst->Printf(level, category, "CONOPT Row Error: %s\n", msg.c_str());
@@ -1253,7 +1281,7 @@ int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char* MSG,
    else if (ROWNO == -1) {
       /*  Message about a column */
       if (COLNO >= 0) {
-         jnlst->Printf(level, category, "CONOPT Column Error (Col %d): %s\n", COLNO, msg.c_str());
+         jnlst->Printf(level, category, "CONOPT Column Error (Col %d): %s\n", display_col, msg.c_str());
       }
       else {
          jnlst->Printf(level, category, "CONOPT Column Error: %s\n", msg.c_str());
@@ -1264,11 +1292,11 @@ int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char* MSG,
       if (POSNO >= 0) {
          /*  Specific Jacobian element */
          jnlst->Printf(level, category, "CONOPT Jacobian Error (Row %d, Col %d, Pos %d): %s\n",
-               ROWNO, COLNO, POSNO, msg.c_str());
+               display_row, display_col, POSNO, msg.c_str());
       }
       else {
          /*  (row,column)-pair */
-         jnlst->Printf(level, category, "CONOPT Matrix Error (Row %d, Col %d): %s\n", ROWNO, COLNO,
+         jnlst->Printf(level, category, "CONOPT Matrix Error (Row %d, Col %d): %s\n", display_row, display_col,
                msg.c_str());
       }
    }

@@ -146,16 +146,14 @@ class IpoptApplication : public ReferencedObject {
          return Invalid_Problem_Definition;
       }
 
-      /*  Store the index style and check for FORTRAN style (not supported) */
-      if (index_style == TNLP::FORTRAN_STYLE) {
-         if (!IsNull(jnlst_)) {
-            jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                  "CONOPT Shim Error: FORTRAN-style indexing is not supported for C/C++ projects. "
-                  "Please use C-style (0-based) indexing in your TNLP implementation.\n");
-         }
-         return Invalid_Problem_Definition;
+      /*  Store the index style - we'll handle FORTRAN by converting indices in the shim */
+      problem_info_.index_style = (index_style == TNLP::FORTRAN_STYLE) ? FORTRAN_STYLE : C_STYLE;
+
+      if (problem_info_.index_style == FORTRAN_STYLE && !IsNull(jnlst_)) {
+         jnlst_->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
+               "CONOPT Shim: FORTRAN-style indexing detected. "
+               "Converting row/column indices to C-style for CONOPT.\n");
       }
-      problem_info_.index_style = C_STYLE;
 
       /*  Resize vectors based on dimensions */
       problem_info_.resize_vectors();
@@ -240,6 +238,14 @@ class IpoptApplication : public ReferencedObject {
             }
             return Invalid_Problem_Definition;
          }
+
+         /*  Convert FORTRAN indices (1-based) to C-style (0-based) if needed */
+         if (problem_info_.index_style == FORTRAN_STYLE) {
+            for (Index k = 0; k < problem_info_.nnz_jac_g; ++k) {
+               problem_info_.jac_g_iRow[k] = problem_info_.jac_g_iRow[k] - 1;
+               problem_info_.jac_g_jCol[k] = problem_info_.jac_g_jCol[k] - 1;
+            }
+         }
       }
 
       /*  5. Get Hessian structure (if needed) */
@@ -253,6 +259,15 @@ class IpoptApplication : public ReferencedObject {
             }
             return Invalid_Problem_Definition;
          }
+
+         /*  Convert FORTRAN indices (1-based) to C-style (0-based) if needed */
+         if (problem_info_.index_style == FORTRAN_STYLE) {
+            for (Index k = 0; k < problem_info_.nnz_h_lag; ++k) {
+               problem_info_.hess_iRow[k] = problem_info_.hess_iRow[k] - 1;
+               problem_info_.hess_jCol[k] = problem_info_.hess_jCol[k] - 1;
+            }
+         }
+
          /*  Compute CONOPT ordering permutation once here */
          problem_info_.compute_hessian_permutation();
       }
