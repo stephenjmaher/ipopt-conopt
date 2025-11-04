@@ -2,6 +2,9 @@
 
 A bridge library that allows optimization problems defined using the Ipopt `TNLP` interface to be solved using CONOPT instead of Ipopt. This provides a seamless way to use CONOPT as a drop-in replacement for Ipopt in existing codebases.
 
+The bridge is not fully featured and there may be features in Ipopt used in an application that are not implemented. If
+this is the case, please create an issue requesting the feature.
+
 ## Overview
 
 This project implements a bridge between two optimization solvers:
@@ -18,66 +21,6 @@ The bridge translates Ipopt's C++ `TNLP` (Tagged Nonlinear Programming) interfac
 - **Callback Translation**: Implements all required CONOPT C API callbacks (ReadMatrix, FDEval, Solution, Status, etc.)
 - **Status Code Mapping**: Converts CONOPT status codes to Ipopt-compatible return codes
 
-## Project Structure
-
-### Source Code (`src/`)
-
-- **`IpoptToConoptCallbacks.hpp/cpp`**: Core bridge implementation
-  - C-style trampoline functions that implement CONOPT's callback interface
-  - Converts between Ipopt `TNLP` methods and CONOPT callbacks
-  - Handles caching for performance optimization
-
-- **`IpoptProblemInfo.hpp`**: Problem information structure
-  - Stores problem dimensions, bounds, Jacobian/Hessian structures
-  - Handles constraint splitting (range constraints -> two inequalities)
-  - Manages mappings between original and split constraint formulations
-
-- **`IpoptTypes.hpp`**: Basic type definitions
-  - `Index` and `Number` type aliases
-  - Utility functions for infinity handling
-
-- **`Ipopt/`**: Ipopt interface headers
-  - `IpTNLP.hpp`: TNLP base class interface
-  - `IpIpoptApplication.hpp`: Application shim class
-  - `IpSolveStatistics.hpp`: Statistics tracking
-  - `IpOptionsList.hpp`: Options management
-
-### Examples (`example/`)
-
-Two example programs demonstrating how to use the bridge. These examples are taken directly from the Ipopt repository.
-The Makefiles have been modified to demonstrate how to build the examples using the bridge.
-
-#### 1. `Cpp_example/` - Simple Tutorial Example
-
-A minimal example solving:
-$$
-\begin{align}
-\min \quad & -(x_2-2)^2 \\
-\text{s.t.} \quad & x_1^2 + x_2 = 1 \\
-& -1 \leq x_1 \leq 1
-\end{align}
-$$
-
-**Files:**
-- `cpp_example.cpp`: Main program
-- `MyNLP.hpp/cpp`: Simple TNLP implementation
-
-#### 2. `hs071_cpp/` - Hock-Schittkowski Problem 71
-
-A standard test problem:
-$$
-\begin{align}
-\min \quad & x_1 x_4 (x_1 + x_2 + x_3) + x_3 \\
-\text{s.t.} \quad & x_1 x_2 x_3 x_4 \geq 25 \\
-& x_1^2 + x_2^2 + x_3^2 + x_4^2 = 40 \\
-& 1 \leq x_1, x_2, x_3, x_4 \leq 5
-\end{align}
-$$
-
-**Files:**
-- `hs071_main.cpp`: Main program with options configuration
-- `hs071_nlp.hpp/cpp`: HS071 TNLP implementation
-
 ## How It Works
 
 ### Problem Transformation
@@ -89,18 +32,48 @@ The bridge performs several transformations to convert Ipopt problems to CONOPT 
 3. **Hessian Reordering**: CONOPT requires Hessian entries sorted by column then row
 4. **Index Conversion**: Handles both C-style (0-based) and Fortran-style (1-based) indexing
 
-### Callback Implementation
+### Callback Implementation: Mapping Ipopt to CONOPT
 
-The bridge implements all required CONOPT callbacks:
+This bridge works by implementing the CONOPT C-API callback functions (the "trampolines"). These trampolines are registered with CONOPT, and when called, they cast the `void* USRMEM` cookie back into an `IpoptConoptContext*` object. This context allows the trampolines to access the user's `Ipopt::TNLP` and `Ipopt::Journalist` objects, bridging the gap between the two APIs.
 
-- **`Conopt_ReadMatrix`**: Initial problem setup, extracts problem structure from TNLP
-- **`Conopt_FDEval`**: Evaluates constraint values and Jacobian
-- **`Conopt_FDEvalIni/End`**: Batch evaluation optimization
-- **`Conopt_Status`**: Receives CONOPT status updates
-- **`Conopt_Solution`**: Receives final solution
-- **`Conopt_2DLagrStr/Val`**: Hessian of Lagrangian structure and values
-- **`Conopt_Progress`**: Intermediate iteration reporting
-- **`Conopt_Option`**: Option handling
+The core translation logic is as follows:
+
+* **`Conopt_ReadMatrix`**
+  This callback is used by CONOPT to load the entire problem definition at once. It maps to several `Ipopt::TNLP` methods (`get_bounds_info`, `get_starting_point`, and `eval_jac_g` for structure). To handle this, the `IpoptApplication` bridge calls these `TNLP` methods *before* the solve to pre-cache all problem data. This trampoline then simply copies that cached data into the arrays provided by CONOPT.
+
+* **`Conopt_FDEvalIni`**
+  These are CONOPT callbacks that are called before and after the function evaluation rounds. Since CONOPT executes a
+  GRG algorithm, compared to an interior point algorithm, the function evaluation process is a little different. The
+  main difference is that CONOPT can request the evaluation of a subset of rows, as opposed to all rows. To avoid
+  calling the evaluation methods too often, `Conopt_FDEvalIni` executes `tnlp->eval_f` and `tnlp->eval_g`, for the
+  objective and constraint functions, and `tnlp->eval_grad_f` and `tnlp->eval_jac_g`, for the objective and constraint
+  derivatives. The results of these evaluations are cached and then used in `Conopt_FDEval`.
+
+* **`Conopt_FDEval`**
+  Extracts the evaluation results from the cache and return this to CONOPT. Since CONOPT may only request evaluations
+  from a subset of rows, caching the results in `Conopt_FDEvalIni` is critically important.
+
+* **`Conopt_2DLagrStr` / `Conopt_2DLagrVal`**
+  These callbacks map directly to Ipopt's two-stage Hessian evaluation (`tnlp->eval_h`).
+
+  * `Conopt_2DLagrStr` is called first to get the sparsity structure (iRow, jCol) of the Hessian.
+
+  * `Conopt_2DLagrVal` is called later to get the numerical values for that structure, passing in the current `obj_factor` and `lambda` (multipliers).
+
+* **`Conopt_Progress`**
+  This provides intermediate iteration updates. `Conopt_Progress` is the primary iteration log, and its trampoline calls `tnlp->intermediate_callback`, allowing the user to stop the solve.
+
+* **`Conopt_Status`**
+  This reports the final solver status. The trampoline uses the `MODSTA`/`SOLSTA` codes from this callback to populate the `SolveStatistics` bridge.
+
+* **`ConGpt_Solution`**
+  This callback delivers the final solution. The trampoline receives CONOPT's solution arrays (`XVAL`, `YMAR`, etc.) and uses them to call `tnlp->finalize_solution` and to populate the `SolveStatistics` bridge with the final primal and dual values.
+
+* **`Conopt_Message` / `Conopt_ErrMsg`**
+  These are the logging callbacks. The trampoline intercepts all messages and routes them to the `Ipopt::Journalist` object (from the `USRMEM` context), which respects the user's `print_level` settings.
+
+* **`Conopt_Option`**
+  This is an optional callback for handling solver options. If used, the trampoline looks up the option requested by CONOPT (e.g., "tol_opt") in the `OptionsList` bridge and returns the corresponding value (e.g., from Ipopt's "tol").
 
 ### Status Code Mapping
 
@@ -198,51 +171,257 @@ The bridge also converts `ApplicationReturnStatus` to Ipopt's `SolverReturn` enu
 | `Invalid_Number_Detected` | `INVALID_NUMBER_DETECTED` |
 | `Internal_Error` | `INTERNAL_ERROR` |
 
-## Building
+## Project Structure
+
+### Source Code (`src/`)
+
+- **`IpoptToConoptCallbacks.hpp/cpp`**: Core bridge implementation
+  - C-style trampoline functions that implement CONOPT's callback interface
+  - Converts between Ipopt `TNLP` methods and CONOPT callbacks
+  - Handles caching for performance optimization
+
+- **`IpoptProblemInfo.hpp`**: Problem information structure
+  - Stores problem dimensions, bounds, Jacobian/Hessian structures
+  - Handles constraint splitting (range constraints -> two inequalities)
+  - Manages mappings between original and split constraint formulations
+
+- **`IpoptTypes.hpp`**: Basic type definitions
+  - `Index` and `Number` type aliases
+  - Utility functions for infinity handling
+
+- **`Ipopt/`**: Ipopt interface headers
+  - `IpTNLP.hpp`: TNLP base class interface
+  - `IpIpoptApplication.hpp`: Application shim class
+  - `IpSolveStatistics.hpp`: Statistics tracking
+  - `IpOptionsList.hpp`: Options management
+
+## Building Your Project with the Bridge
 
 ### Prerequisites
 
-- **CONOPT**: CONOPT solver library (C API) - the library files and headers are expected in `external/conopt-linux-x86_64/`
-- **IPOPT**: IPOPT library - compiled and installed IPOPT with headers
-- **C++ Compiler**: C++11 or later (tested with `g++`)
+To build a project using this Ipopt-to-CONOPT bridge, you will need:
 
-### Setting Up Library and Include Paths
+1.  **A C++11 (or newer) Compiler** (e.g., g++, Clang, MSVC).
 
-When building projects that use this bridge, you need to explicitly specify paths to both CONOPT and IPOPT libraries and includes. All paths must be provided - there are no defaults.
+2.  **CONOPT Solver:** The CONOPT C-API headers (e.g., `conopt.h`) and the compiled binary library (e.g., `libconopt.so` or `conopt.lib`).
 
-#### Required Build Variables
+3.  **Original Ipopt Installation:** The full Ipopt header files (e.g., `IpTypes.hpp`, `IpSmartPtr.hpp`, etc.) and the compiled binary library (e.g., `libipopt.so` or `libipopt.a`).
 
-The build system requires the following variables to be set:
+4.  **This Bridge's Source Code:** All the header (`.hpp`) files and the single implementation file (`IpoptToConoptCallbacks.cpp`) from this repository.
 
-1. **`CONOPT_DIR`**: Path to CONOPT installation directory
-   - Example: `/path/to/conopt` or `/opt/conopt`
-   - Must contain `include/` subdirectory with `conopt.h` (CONOPT C API header)
-   - Must contain `lib/` subdirectory with `libconopt.so` and related shared libraries
-   - Used for both include paths (`CONOPT_DIR/include`) and library paths (`CONOPT_DIR/lib`)
+### Integration
 
-2. **`IP2CO_INC`**: Path to bridge source/include directory
-   - Example: `/path/to/ipopt-conopt/src`
-   - Contains bridge headers (`IpoptToConoptCallbacks.hpp`, `IpoptProblemInfo.hpp`, etc.)
-   - Also contains bridge source file (`IpoptToConoptCallbacks.cpp`) that must be compiled
+Integrating the bridge into your project involves three main steps:
 
-3. **`IPOPT_DIR`**: Path to IPOPT installation directory
-   - Example: `/path/to/ipopt` or `/usr/local`
-   - Must contain `include/coin-or/` subdirectory with IPOPT headers
-   - Must contain `lib/` subdirectory with `libipopt.so` and related shared libraries
-   - Used for both include paths (`IPOPT_DIR/include/coin-or`) and library paths (`IPOPT_DIR/lib`)
+1.  **Compile the Bridge:** Add the bridge's implementation file, `IpoptToConoptCallbacks.cpp`, to the list of source files your build system compiles.
 
-Note that when building your Ipopt project with the Ipopt-CONOPT bridge, it is important to specify the include path for
-the bridge before the Ipopt include path. Additionally, it is still necessary to link against the Ipopt library, because
-some data types and structures are defined by Ipopt, for example `Index` and `Number`.
+2.  **Set Include Path Order:** Configure your build system to find the **bridge's headers *before*** the original Ipopt headers.
 
-#### Building the Examples
+3.  **Link Libraries:** Link your final executable against the compiled bridge object, the CONOPT library, and the Ipopt library.
+
+**Note:** You **must** link against the original Ipopt library (`libipopt.so` or `libipopt.a`). This bridge re-uses Ipopt's underlying object model (like `ReferencedObject` and `SmartPtr`), which requires linking to the original Ipopt library to resolve base class destructors and other utility functions.
+
+### CMake Example
+
+Using CMake is the recommended way to build your project. The following `CMakeLists.txt` demonstrates the correct setup.
+
+```cmake
+cmake_minimum_required(VERSION 3.10)
+project(MyIpoptProject)
+
+# ------------------------------------------------------------------
+# 1. DEFINE YOUR PROJECT VARIABLES
+# (Set these paths based on your system)
+# ------------------------------------------------------------------
+
+# Your application's source files
+set(MY_APP_SOURCES
+    src/MyProblem.cpp
+    src/main.cpp
+)
+
+# Path to the root of this bridge repository
+# This directory should contain 'IpoptToConoptCallbacks.cpp' and the 'Ipopt/' header folder
+set(IP2CO_DIR /path/to/ipopt-conopt-bridge)
+
+# Path to your CONOPT C-API installation
+set(CONOPT_DIR /path/to/conopt)
+
+# Path to your original Ipopt installation
+set(IPOPT_DIR /path/to/ipopt_install)
+
+# ------------------------------------------------------------------
+# 2. CONFIGURE THE EXECUTABLE
+# ------------------------------------------------------------------
+
+# Add your executable
+add_executable(my_app
+    ${MY_APP_SOURCES}
+    
+    # Add the bridge's implementation file to be compiled
+    ${IP2CO_DIR}/IpoptToConoptCallbacks.cpp
+)
+
+# ------------------------------------------------------------------
+# 3. SET INCLUDE PATH ORDER (CRITICAL)
+# ------------------------------------------------------------------
+target_include_directories(my_app PRIVATE
+    
+    # 1. The bridge's headers MUST come FIRST
+    ${IP2CO_DIR}
+    
+    # 2. The original Ipopt headers come SECOND
+    ${IPOPT_DIR}/include/coin-or
+    
+    # 3. The CONOPT C-API headers
+    ${CONOPT_DIR}/include
+)
+
+# ------------------------------------------------------------------
+# 4. LINK LIBRARIES
+# ------------------------------------------------------------------
+
+# Add the library search paths
+target_link_directories(my_app PRIVATE
+    ${CONOPT_DIR}/lib
+    ${IPOPT_DIR}/lib
+)
+
+# Link your app against CONOPT and IPOPT
+target_link_libraries(my_app PRIVATE
+    conopt # Assumes libconopt.so or conopt.lib
+    ipopt  # Assumes libipopt.so or libipopt.a
+    # Add other necessary libraries (e.g., m, dl)
+    m
+    dl
+)
+```
+
+### Makefile Example
+
+If you are not using CMake, you can use a traditional `Makefile`. The key is to add the bridge's `.cpp` file to your sources and set the include path order using `-I` flags.
+
+```makefile
+# ------------------------------------------------------------------
+# 1. DEFINE YOUR PROJECT VARIABLES
+# (Set these paths based on your system)
+# ------------------------------------------------------------------
+
+# Compiler
+CXX = g++
+CXXFLAGS = -std=c++11 -Wall -g # -g for debugging
+
+# Your application's executable name
+TARGET = my_app
+
+# Path to the root of this bridge repository
+IP2CO_DIR = /path/to/ipopt-conopt-bridge
+
+# Path to your CONOPT C-API installation
+CONOPT_DIR = /path/to/conopt
+
+# Path to your original Ipopt installation
+IPOPT_DIR = /path/to/ipopt_install
+
+# ------------------------------------------------------------------
+# 2. DEFINE SOURCES AND OBJECTS
+# ------------------------------------------------------------------
+
+# Add the bridge's implementation file to the list of sources
+SRCS = \
+    src/MyProblem.cpp \
+    src/main.cpp \
+    ${IP2CO_DIR}/IpoptToConoptCallbacks.cpp
+
+# Create a list of object files
+OBJS = $(SRCS:.cpp=.o)
+
+# ------------------------------------------------------------------
+# 3. SET INCLUDE PATH ORDER (CRITICAL)
+# ------------------------------------------------------------------
+# The bridge's headers MUST come FIRST.
+INCLUDE_PATHS = \
+    -I${IP2CO_DIR} \
+    -I${IPOPT_DIR}/include/coin-or \
+    -I${CONOPT_DIR}/include
+
+# Add include paths to compiler flags
+CXXFLAGS += ${INCLUDE_PATHS}
+
+# ------------------------------------------------------------------
+# 4. SET LINKER FLAGS
+# ------------------------------------------------------------------
+LDFLAGS = \
+    -L${CONOPT_DIR}/lib \
+    -L${IPOPT_DIR}/lib \
+    -Wl,-rpath,${CONOPT_DIR}/lib \
+    -Wl,-rpath,${IPOPT_DIR}/lib \
+    -lconopt -lipopt -lm -ldl
+
+# ------------------------------------------------------------------
+# 5. BUILD RULES
+# ------------------------------------------------------------------
+
+all: $(TARGET)
+
+$(TARGET): $(OBJS)
+	$(CXX) $(OBJS) -o $(TARGET) $(LDFLAGS)
+
+# Generic rule for compiling .cpp files
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+clean:
+	rm -f $(OBJS) $(TARGET)
+```
+
+
+## Examples
+
+Two example programs demonstrating how to use the bridge. These examples are taken directly from the Ipopt repository.
+The Makefiles have been modified to demonstrate how to build the examples using the bridge.
+
+### 1. **Cpp_example** - Simple Tutorial Example
+
+A minimal example solving:
+
+$$
+\begin{align}
+\min \quad & -(x_2-2)^2 \\
+\text{s.t.} \quad & x_1^2 + x_2 = 1 \\
+& -1 \leq x_1 \leq 1
+\end{align}
+$$
+
+**Files:**
+- `cpp_example.cpp`: Main program
+- `MyNLP.hpp/cpp`: Simple TNLP implementation
+
+### 2. **hs071_cpp** - Hock-Schittkowski Problem 71
+
+A standard test problem:
+
+$$
+\begin{align}
+\min \quad & x_1 x_4 (x_1 + x_2 + x_3) + x_3 \\
+\text{s.t.} \quad & x_1 x_2 x_3 x_4 \geq 25 \\
+& x_1^2 + x_2^2 + x_3^2 + x_4^2 = 40 \\
+& 1 \leq x_1, x_2, x_3, x_4 \leq 5
+\end{align}
+$$
+
+**Files:**
+- `hs071_main.cpp`: Main program with options configuration
+- `hs071_nlp.hpp/cpp`: HS071 TNLP implementation
+
+### Building the Examples
 
 To build an example, navigate to the example directory and run `make` with all required path variables:
 
 ```bash
 cd example/hs071_cpp
 make CONOPT_DIR=/path/to/conopt \
-     IP2CO_INC=/path/to/ipopt-conopt/src \
+     IP2CO_DIR=/path/to/ipopt-conopt/src \
      IPOPT_DIR=/path/to/ipopt \
      OPT=opt
 ```
@@ -255,7 +434,7 @@ make CONOPT_DIR=/path/to/conopt \
 ```bash
 cd example/hs071_cpp
 make CONOPT_DIR=/opt/conopt \
-     IP2CO_INC=/home/user/ipopt-conopt/src \
+     IP2CO_DIR=/home/user/ipopt-conopt/src \
      IPOPT_DIR=/usr/local \
      OPT=opt
 ```
@@ -268,76 +447,6 @@ The Makefiles use the following include order (important for header resolution):
 
 This order ensures that the bridge's shim headers are found before the original IPOPT headers.
 
-#### Linking
-
-The linker requires both CONOPT and IPOPT libraries. The Makefiles link them in this order:
-- `-lconopt` (CONOPT C API library)
-- `-lipopt` (IPOPT library)
-- Standard C++ libraries (`-lstdc++`, `-lm`, `-ldl`)
-
-Runtime library paths are set using `-Wl,--rpath` flags to ensure the correct libraries are found at runtime.
-
-### Building Your Own Project
-
-To integrate this bridge into your own project, you must compile the bridge's implementation file (`IpoptToConoptCallbacks.cpp`) and link it with your code.
-
-#### Step 1: Set Up Include Paths
-
-Add the following include paths to your compiler flags:
-
-```bash
--I$(CONOPT_DIR)/include \
--I$(IP2CO_INC) \
--I$(IP2CO_INC)/Ipopt \
--I$(IPOPT_DIR)/include/coin-or
-```
-
-#### Step 2: Compile the Bridge Implementation
-
-**You must compile `IpoptToConoptCallbacks.cpp`** as part of your build process:
-
-```bash
-g++ -c $(IP2CO_INC)/IpoptToConoptCallbacks.cpp \
-    -I$(CONOPT_DIR)/include \
-    -I$(IP2CO_INC) \
-    -I$(IP2CO_INC)/Ipopt \
-    -I$(IPOPT_DIR)/include/coin-or \
-    -o IpoptToConoptCallbacks.o
-```
-
-Alternatively, add it to your object file list:
-```makefile
-OBJS = your_source.o \
-       $(IP2CO_INC)/IpoptToConoptCallbacks.o
-```
-
-The Makefiles in the examples demonstrate this pattern. Note that the bridge is **not** a header-only library - the `IpoptToConoptCallbacks.cpp` file contains the actual implementation of the callback functions and must be compiled.
-
-#### Step 3: Compile Your Source Files
-
-Compile your own source files with the same include paths:
-```bash
-g++ -c your_source.cpp \
-    -I$(CONOPT_DIR)/include \
-    -I$(IP2CO_INC) \
-    -I$(IP2CO_INC)/Ipopt \
-    -I$(IPOPT_DIR)/include/coin-or \
-    -o your_source.o
-```
-
-#### Step 4: Link Everything Together
-
-Link all object files (including `IpoptToConoptCallbacks.o`) against CONOPT and IPOPT libraries:
-```bash
-g++ -o your_program \
-    your_source.o \
-    IpoptToConoptCallbacks.o \
-    -L$(CONOPT_DIR)/lib -L$(IPOPT_DIR)/lib \
-    -lconopt -lipopt -lstdc++ -lm -ldl \
-    -Wl,--rpath,$(CONOPT_DIR)/lib -Wl,--rpath,$(IPOPT_DIR)/lib
-```
-
-**Important**: The `IpoptToConoptCallbacks.cpp` file is required - without it, the linker will fail with undefined references to the CONOPT callback functions.
 
 ## License
 

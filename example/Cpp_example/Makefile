@@ -14,7 +14,7 @@ EXE = cpp_example
 #           code that you wrote in order to define the problem statement
 OBJS =  cpp_example.o \
 	MyNLP.o \
-	$(IP2CO_INC)/IpoptToConoptCallbacks.o
+	$(IP2CO_DIR)/IpoptToConoptCallbacks.o
 
 # CHANGEME: Additional libraries
 ADDLIBS =
@@ -32,14 +32,14 @@ CXX = g++
 
 # CONOPT paths and build options
 # All paths must be explicitly specified:
-#   make CONOPT_DIR=/path/to/conopt IP2CO_INC=/path/to/ipopt-conopt/src IPOPT_DIR=/path/to/ipopt [OPT=dbg|opt]
+#   make CONOPT_DIR=/path/to/conopt IP2CO_DIR=/path/to/ipopt-conopt/src IPOPT_DIR=/path/to/ipopt [OPT=dbg|opt]
 # Only check for these variables if not running clean target (or if clean is not the only target)
 ifeq ($(filter clean,$(MAKECMDGOALS)),)
 ifndef CONOPT_DIR
 $(error CONOPT_DIR is not set. Please specify: make CONOPT_DIR=/path/to/conopt ...)
 endif
-ifndef IP2CO_INC
-$(error IP2CO_INC is not set. Please specify: make IP2CO_INC=/path/to/ipopt-conopt/src ...)
+ifndef IP2CO_DIR
+$(error IP2CO_DIR is not set. Please specify: make IP2CO_DIR=/path/to/ipopt-conopt/src ...)
 endif
 ifndef IPOPT_DIR
 $(error IPOPT_DIR is not set. Please specify: make IPOPT_DIR=/path/to/ipopt ...)
@@ -65,7 +65,7 @@ endif
 CXXLINKFLAGS = -Wl,--rpath -Wl,$(CONOPT_DIR)/lib -Wl,--rpath -Wl,$(IPOPT_DIR)/lib
 
 # Include directories
-INCL = -I$(CONOPT_DIR)/include -I$(IP2CO_INC) -I$(IP2CO_INC)/Ipopt -I$(IPOPT_DIR)/include/coin-or $(ADDINCFLAGS)
+INCL = -I$(CONOPT_DIR)/include -I$(IP2CO_DIR) -I$(IP2CO_DIR)/Ipopt -I$(IPOPT_DIR)/include/coin-or $(ADDINCFLAGS)
 
 # Linker flags
 LIBS = -L$(CONOPT_DIR)/lib -L$(IPOPT_DIR)/lib -lconopt -lipopt -lstdc++ -lm -ldl
@@ -84,5 +84,5 @@ clean:
 	$(CXX) $(CXXFLAGS) $(INCL) -c -o $@ $<
 
 # Special rule for IpoptToConoptCallbacks.cpp
-$(IP2CO_INC)/IpoptToConoptCallbacks.o: $(IP2CO_INC)/IpoptToConoptCallbacks.cpp
+$(IP2CO_DIR)/IpoptToConoptCallbacks.o: $(IP2CO_DIR)/IpoptToConoptCallbacks.cpp
 	$(CXX) $(CXXFLAGS) $(INCL) -c -o $@ $<
