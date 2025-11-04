@@ -190,7 +190,6 @@ The bridge also converts `ApplicationReturnStatus` to Ipopt's `SolverReturn` enu
   - Utility functions for infinity handling
 
 - **`Ipopt/`**: Ipopt interface headers
-  - `IpTNLP.hpp`: TNLP base class interface
   - `IpIpoptApplication.hpp`: Application shim class
   - `IpSolveStatistics.hpp`: Statistics tracking
   - `IpOptionsList.hpp`: Options management
