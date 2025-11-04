@@ -14,7 +14,7 @@ EXE = hs071_cpp
 #           code that you wrote in order to define the problem statement
 OBJS = hs071_main.o \
 	hs071_nlp.o \
-	$(CONOPT_ROOT)/src/IpoptToConoptCallbacks.o
+	$(IP2CO_INC)/IpoptToConoptCallbacks.o
 
 # CHANGEME: Additional libraries
 ADDLIBS =
@@ -30,17 +30,19 @@ ADDINCFLAGS =
 # C++ Compiler command
 CXX = g++
 
-# CONOPT paths and build options (must be specified: make CONOPT_ROOT=/path/to/ipopt-conopt CONOPT_LIB=/path/to/conopt/lib IPOPT_LIB=/path/to/ipopt/lib [OPT=dbg|opt])
+# CONOPT paths and build options
+# All paths must be explicitly specified:
+#   make CONOPT_DIR=/path/to/conopt IP2CO_INC=/path/to/ipopt-conopt/src IPOPT_DIR=/path/to/ipopt [OPT=dbg|opt]
 # Only check for these variables if not running clean target (or if clean is not the only target)
 ifeq ($(filter clean,$(MAKECMDGOALS)),)
-ifndef CONOPT_ROOT
-$(error CONOPT_ROOT is not set. Please specify: make CONOPT_ROOT=/path/to/ipopt-conopt CONOPT_LIB=/path/to/conopt/lib IPOPT_LIB=/path/to/ipopt/lib [OPT=dbg|opt])
+ifndef CONOPT_DIR
+$(error CONOPT_DIR is not set. Please specify: make CONOPT_DIR=/path/to/conopt ...)
 endif
-ifndef CONOPT_LIB
-$(error CONOPT_LIB is not set. Please specify: make CONOPT_ROOT=/path/to/ipopt-conopt CONOPT_LIB=/path/to/conopt/lib IPOPT_LIB=/path/to/ipopt/lib [OPT=dbg|opt])
+ifndef IP2CO_INC
+$(error IP2CO_INC is not set. Please specify: make IP2CO_INC=/path/to/ipopt-conopt/src ...)
 endif
-ifndef IPOPT_LIB
-$(error IPOPT_LIB is not set. Please specify: make CONOPT_ROOT=/path/to/ipopt-conopt CONOPT_LIB=/path/to/conopt/lib IPOPT_LIB=/path/to/ipopt/lib [OPT=dbg|opt])
+ifndef IPOPT_DIR
+$(error IPOPT_DIR is not set. Please specify: make IPOPT_DIR=/path/to/ipopt ...)
 endif
 endif
 
@@ -52,11 +54,6 @@ $(error OPT must be either 'dbg' or 'opt'. Please specify: make OPT=dbg or make 
 endif
 endif
 
-CONOPT_EXTERNAL_LIB = $(CONOPT_ROOT)/external/conopt-linux-x86_64/lib
-CONOPT_INC = $(CONOPT_ROOT)/external/conopt-linux-x86_64/include
-IPOPT_INC = $(CONOPT_ROOT)/external/ipopt/install/include/coin-or
-SHIM_INC = $(CONOPT_ROOT)/src
-
 # C++ Compiler options (set based on OPT)
 ifeq ($(OPT),dbg)
 CXXFLAGS = -g -O0 -DDEBUG
@@ -65,13 +62,13 @@ CXXFLAGS = -O2 -DNDEBUG
 endif
 
 # additional C++ Compiler options for linking
-CXXLINKFLAGS = -Wl,--rpath -Wl,$(CONOPT_LIB) -Wl,--rpath -Wl,$(IPOPT_LIB)
+CXXLINKFLAGS = -Wl,--rpath -Wl,$(CONOPT_DIR)/lib -Wl,--rpath -Wl,$(IPOPT_DIR)/lib
 
 # Include directories
-INCL = -I$(CONOPT_INC) -I$(SHIM_INC) -I$(SHIM_INC)/Ipopt -I$(IPOPT_INC) $(ADDINCFLAGS)
+INCL = -I$(CONOPT_DIR)/include -I$(IP2CO_INC) -I$(IP2CO_INC)/Ipopt -I$(IPOPT_DIR)/include/coin-or $(ADDINCFLAGS)
 
 # Linker flags
-LIBS = -L$(CONOPT_EXTERNAL_LIB) -L$(IPOPT_LIB) -lconopt -lipopt -lstdc++ -lm -ldl
+LIBS = -L$(CONOPT_DIR)/lib -L$(IPOPT_DIR)/lib -lconopt -lipopt -lstdc++ -lm -ldl
 
 all: $(EXE)
 
@@ -87,5 +84,5 @@ clean:
 	$(CXX) $(CXXFLAGS) $(INCL) -c -o $@ $<
 
 # Special rule for IpoptToConoptCallbacks.cpp
-$(CONOPT_ROOT)/src/IpoptToConoptCallbacks.o: $(CONOPT_ROOT)/src/IpoptToConoptCallbacks.cpp
+$(IP2CO_INC)/IpoptToConoptCallbacks.o: $(IP2CO_INC)/IpoptToConoptCallbacks.cpp
 	$(CXX) $(CXXFLAGS) $(INCL) -c -o $@ $<
