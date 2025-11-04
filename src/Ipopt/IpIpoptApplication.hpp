@@ -23,26 +23,16 @@
 #include <vector>
 #include <string>
 
-/*  4. FORWARD DECLARE THE OTHER SHIM CLASSES */
+/*  4. INCLUDE OPTIONS LIST */
+#include "IpOptionsList.hpp"
+
+/*  5. FORWARD DECLARE THE OTHER SHIM CLASSES */
 namespace Ipopt {
 class TNLP;
 class Journal;
 class Journalist;
 class RegisteredOptions;
 class SolveStatistics;
-
-/*  Dummy OptionsList class */
-class OptionsList : public ReferencedObject {
- public:
-   void SetNumericValue(const std::string& name, Number value) {
-      /*  Stubbed - do nothing */
-   }
-
-   void SetStringValue(const std::string& name, const std::string& value) {
-      /*  Stubbed - do nothing */
-   }
-};
-
 }  // namespace Ipopt
 
 namespace Ipopt {
@@ -75,13 +65,17 @@ class IpoptApplication : public ReferencedObject {
     */
    IpoptProblemInfo problem_info_;
 
+   /**
+    * @brief OptionsList that maps Ipopt options to CONOPT
+    */
+   SmartPtr<OptionsList> options_;
+
  public:
    /**
     * @brief Constructor: Create the CONOPT handle.
     */
-   IpoptApplication() : cntvect_(nullptr), jnlst_(new Journalist()) {
+   IpoptApplication() : cntvect_(nullptr), jnlst_(new Journalist()), stats_(new SolveStatistics()), options_(new OptionsList()) {
       COI_Create(&cntvect_);
-      stats_ = new SolveStatistics(); /*  <-- Create the SolveStatistics object */
 
       /*  Set verbose output for debugging */
       if (!IsNull(jnlst_)) {
@@ -91,12 +85,11 @@ class IpoptApplication : public ReferencedObject {
    }
 
    /*  Constructor accepting journalist */
-   IpoptApplication(SmartPtr<Journalist> jnlst) : cntvect_(nullptr), jnlst_(jnlst) {
+   IpoptApplication(SmartPtr<Journalist> jnlst) : cntvect_(nullptr), jnlst_(jnlst), stats_(new SolveStatistics()), options_(new OptionsList()) {
       COI_Create(&cntvect_);
       if (IsNull(jnlst_)) {
          jnlst_ = new Journalist();
       }
-      stats_ = new SolveStatistics(); /*  <-- Create the SolveStatistics object */
 
       /*  Set verbose output for debugging */
       if (!IsNull(jnlst_)) {
@@ -362,6 +355,7 @@ class IpoptApplication : public ReferencedObject {
 
       /*  Optional Callbacks */
       COI_ERROR += COIDEF_FDEvalIni(cntvect_, Conopt_FDEvalIni);
+      COI_ERROR += COIDEF_Option(cntvect_, Conopt_Option);
 
       /*
        * Hessian of Lagrangian callbacks
@@ -382,6 +376,17 @@ class IpoptApplication : public ReferencedObject {
       }
 
       /*  ... (Register all others: SDDir, etc.) ... */
+
+      /*  --- Apply user options to CONOPT --- */
+      if (!IsNull(options_)) {
+         if (!options_->ApplyToConopt(cntvect_, GetRawPtr(jnlst_))) {
+            if (!IsNull(jnlst_)) {
+               jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                     "CONOPT Shim Error: Failed to apply options to CONOPT.\n");
+            }
+            return Internal_Error;
+         }
+      }
 
       /*  --- Set up CONOPT problem information --- */
       if (!SetupConoptProblem()) {
@@ -443,12 +448,10 @@ class IpoptApplication : public ReferencedObject {
    }
 
    /**
-    * @brief Get options object (stubbed for now)
+    * @brief Get options object
     */
    SmartPtr<OptionsList> Options() {
-      /*  Return a dummy options object for now */
-      static SmartPtr<OptionsList> dummy_options = new OptionsList();
-      return dummy_options;
+      return GetRawPtr(options_);
    }
 
    /**

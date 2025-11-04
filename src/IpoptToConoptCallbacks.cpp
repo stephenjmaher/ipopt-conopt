@@ -7,6 +7,7 @@
 #include "IpTNLP.hpp"
 #include "IpJournalist.hpp"
 #include "Ipopt/IpSolveStatistics.hpp"
+#include "Ipopt/IpOptionsList.hpp"
 #include "IpAlgTypes.hpp"
 #include "IpoptProblemInfo.hpp"
 #include <cassert>
@@ -893,8 +894,8 @@ int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[]
             ROWNO[pos] = row;
             VALUE[pos] = 0.0; /*  Values will be computed by FDEval */
             NLFLAG[pos] =
-                  1; /*  the NLFLAG is set to 1 for all values because Ipopt evaluates all */
-                     /*  expressions, even linear expressions. */
+                  1; /*  the NLFLAG is set to 1 for all values because Ipopt evaluates all
+                      *  expressions, even linear expressions. */
             col_positions[col]++;
          }
       }
@@ -1602,6 +1603,89 @@ int COI_CALLCONV Conopt_Progress(int LEN_INT, const int INT[], int LEN_RL, const
    }
 
    return should_continue ? 0 : 1; /*  0 = continue, 1 = stop */
+}
+
+/**
+ * @brief CONOPT Option callback - Define Options
+ *
+ * This optional callback is called repeatedly by CONOPT to get non-default option values.
+ * It returns one option per call until all options are provided (indicated by blank NAME).
+ * The callback reads options from the OptionsList object stored in the context.
+ *
+ * @param NCALL Input: The sequence number of the call (0-based for C API)
+ * @param RVAL Output: The value if the option is a real value
+ * @param IVAL Output: The value if the option is an integer value
+ * @param LVAL Output: The value if the option is a logical value (0=false, non-zero=true)
+ * @param NAME Output: The CONOPT CR-cell name (8 characters, padded with blanks). Blank indicates no more options.
+ * @param USRMEM User memory pointer containing IpoptConoptContext
+ * @return 0 on success, non-zero on error
+ */
+int COI_CALLCONV Conopt_Option(int NCALL, double* RVAL, int* IVAL, int* LVAL, char* NAME, void* USRMEM) {
+   int result = 0; /* Default to success */
+
+   /* Cast USRMEM from double* to void* (CONOPT uses double* for Fortran compatibility) */
+   void* usrmem_void = static_cast<void*>(USRMEM);
+   IpoptConoptContext* context = GetContext(usrmem_void);
+   Ipopt::Journalist* jnlst = GetJournalist(usrmem_void);
+
+   if (!context || !context->options_list_) {
+      /* If no context or options list, return blank name (no more options) */
+      if (NAME) {
+         std::memset(NAME, ' ', 8);
+      }
+      return 0;
+   }
+
+   /* Get the call number (0-based for C API) */
+   int call_index = NCALL;
+
+   /* Get the option for this call index */
+   std::string opt_name;
+   double rval = 0.0;
+   int ival = 0;
+   int lval = 0;
+
+   /* GetConoptOption sets the correct value based on stored type
+    * Since ConoptOption::Type is private, we pass nullptr for type
+    */
+   bool has_option = context->options_list_->GetConoptOption(call_index, opt_name, &rval, &ival, &lval, nullptr);
+
+   if (!has_option) {
+      /* No more options - return blank name */
+      if (NAME) {
+         std::memset(NAME, ' ', 8);
+      }
+      if (jnlst) {
+         jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
+               "CONOPT Shim: Option callback - no more options (NCALL=%d).\n", call_index);
+      }
+      return 0;
+   }
+
+   /* Copy the option name to NAME buffer (must be exactly 8 characters) */
+   if (NAME) {
+      std::memset(NAME, ' ', 8); /* Initialize with blanks */
+      if (opt_name.length() > 0) {
+         size_t copy_len = std::min(opt_name.length(), static_cast<size_t>(8));
+         std::strncpy(NAME, opt_name.c_str(), copy_len);
+      }
+   }
+
+   /* Set the appropriate value - GetConoptOption already set the correct one based on type
+    * CONOPT will use the value matching the CR-cell type, so we set all three
+    * (CONOPT ignores values that don't match the CR-cell type)
+    */
+   if (RVAL) *RVAL = rval;
+   if (IVAL) *IVAL = ival;
+   if (LVAL) *LVAL = lval;
+
+   if (jnlst) {
+      jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
+            "CONOPT Shim: Option callback - providing option %d: %s\n",
+            call_index, opt_name.c_str());
+   }
+
+   return result;
 }
 
 /*

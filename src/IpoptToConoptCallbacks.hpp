@@ -13,6 +13,7 @@ namespace Ipopt {
 class TNLP;
 class Journalist;
 class SolveStatistics;
+class OptionsList;
 struct IpoptProblemInfo;
 } /*  namespace Ipopt */
 
@@ -187,6 +188,7 @@ typedef struct {
    Ipopt::IpoptProblemInfo* problem_info_;
    FDEvalCache* fdeval_cache_;             /*  Cache for FDEvalIni optimization */
    ConoptStatusSolution* status_solution_; /*  Cache for status and solution data */
+   Ipopt::OptionsList* options_list_;       /*  Pointer to OptionsList to retrieve optfile name */
 } IpoptConoptContext;
 
 /**
@@ -306,7 +308,10 @@ int COI_CALLCONV Conopt_2DLagrVal(const double X[], const double U[], const int 
 int COI_CALLCONV Conopt_Progress(int LEN_INT, const int INT[], int LEN_RL, const double RL[],
       const double X[], void* USRMEM);
 
-/*  ... and so on for all other callbacks (Option, TriOrd, SDDir, etc.) ... */
+/*  Option callback for setting CONOPT options */
+int COI_CALLCONV Conopt_Option(int NCALL, double* RVAL, int* IVAL, int* LVAL, char* NAME, void* USRMEM);
+
+/*  ... and so on for all other callbacks (TriOrd, SDDir, etc.) ... */
 
 #ifdef __cplusplus
 }
