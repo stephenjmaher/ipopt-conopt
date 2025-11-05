@@ -344,19 +344,16 @@ class IpoptApplication : public ReferencedObject {
       return Solve_Succeeded;
    }
 
+ private:
    /**
-    * @brief The main "Solve" method.
-    * This is where we wire everything together.
+    * @brief Setup solve instances (stats, ip_data, fdeval_cache, status_solution) and context.
+    * @param tnlp The TNLP object to use
+    * @return true on success, false on error
     */
-   ApplicationReturnStatus OptimizeTNLP(SmartPtr<TNLP> tnlp) {
-      if (!cntvect_ || IsNull(tnlp) || IsNull(jnlst_) || IsNull(stats_)) {
-         return Invalid_Problem_Definition;
-      }
-
-      /*  --- Retrieve problem information from TNLP --- */
-      ApplicationReturnStatus info_status = RetrieveProblemInfo(tnlp);
-      if (info_status != Solve_Succeeded) {
-         return info_status;
+   bool SetupSolveInstances(SmartPtr<TNLP> tnlp) {
+      /*  Create new statistics instance if needed */
+      if (IsNull(stats_)) {
+         stats_ = new SolveStatistics();
       }
 
       /*  Start timing */
@@ -368,8 +365,8 @@ class IpoptApplication : public ReferencedObject {
       context_.tnlp_ = GetRawPtr(tnlp);
       context_.journalist_ = GetRawPtr(jnlst_);
       context_.stats_ = GetRawPtr(stats_);
-      context_.problem_info_ = &problem_info_;      /*  Add problem info to context */
-      context_.options_list_ = GetRawPtr(options_); /*  Add options list to context */
+      context_.problem_info_ = &problem_info_;
+      context_.options_list_ = GetRawPtr(options_);
 
       /*  --- Create IpoptData instance --- */
       ip_data_ = new IpoptData();
@@ -379,17 +376,44 @@ class IpoptApplication : public ReferencedObject {
       context_.fdeval_cache_ =
             new FDEvalCache(problem_info_.m_split, problem_info_.nnz_jac_g, problem_info_.n);
 
-      /*  creating the status solution structure */
+      /*  --- Create status solution structure --- */
       context_.status_solution_ = new ConoptStatusSolution();
 
+      /*  --- Update USRMEM pointer with context --- */
       COIDEF_UsrMem(cntvect_, &context_);
 
-      /*
-       * --- Register all our trampolines ---
-       * These C functions are defined in IpoptToConoptCallbacks.cpp
-       * and will call the virtual methods on the tnlp* cookie.
-       */
+      return true;
+   }
 
+   /**
+    * @brief Clean up old solve instances (fdeval_cache, ip_data, status_solution).
+    * Statistics are not cleaned up here as they may be accessed via Statistics().
+    */
+   void CleanupOldInstances() {
+      /*  Free old fdeval_cache */
+      if (context_.fdeval_cache_) {
+         delete context_.fdeval_cache_;
+         context_.fdeval_cache_ = nullptr;
+      }
+
+      /*  Free old ip_data */
+      if (!IsNull(ip_data_)) {
+         context_.ip_data_ = nullptr;
+         ip_data_ = nullptr;
+      }
+
+      /*  Free old status_solution */
+      if (context_.status_solution_) {
+         delete context_.status_solution_;
+         context_.status_solution_ = nullptr;
+      }
+   }
+
+   /**
+    * @brief Register CONOPT callbacks.
+    * @return ApplicationReturnStatus indicating success or failure
+    */
+   ApplicationReturnStatus RegisterConoptCallbacks() {
       int COI_ERROR = 0;
 
       /*  Mandatory Callbacks */
@@ -422,17 +446,99 @@ class IpoptApplication : public ReferencedObject {
          return Internal_Error;
       }
 
-      /*  ... (Register all others: SDDir, etc.) ... */
+      return Solve_Succeeded;
+   }
 
+   /**
+    * @brief Apply options to CONOPT and solve the problem.
+    * @param error_context Context string for error messages
+    * @return ApplicationReturnStatus indicating success or failure
+    */
+   ApplicationReturnStatus ApplyOptionsAndSolve(const char* error_context) {
       /*  --- Apply user options to CONOPT --- */
       if (!IsNull(options_)) {
          if (!options_->ApplyToConopt(cntvect_, GetRawPtr(jnlst_))) {
             if (!IsNull(jnlst_)) {
                jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                     "CONOPT Shim Error: Failed to apply options to CONOPT.\n");
+                     "CONOPT Shim Error: Failed to apply options to CONOPT in %s.\n",
+                     error_context);
             }
             return Internal_Error;
          }
+      }
+
+      /*  --- Solve the problem --- */
+      int COI_ERROR = COI_Solve(cntvect_);
+
+      /*  Check for CONOPT solve errors */
+      if (COI_ERROR != 0) {
+         if (!IsNull(jnlst_)) {
+            jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                  "CONOPT Shim Error: COI_Solve failed in %s with error %d\n", error_context,
+                  COI_ERROR);
+         }
+         return Internal_Error;
+      }
+
+      return Solve_Succeeded;
+   }
+
+   /**
+    * @brief Finalize the solve: stop timing, call finalize_solution, populate statistics, and
+    * cleanup.
+    * @return ApplicationReturnStatus indicating the solve result
+    */
+   ApplicationReturnStatus FinalizeAndCleanup() {
+      /*  Stop timing */
+      if (!IsNull(stats_)) {
+         stats_->StopTiming();
+      }
+
+      /*  --- Report the final solution to the user --- */
+      CallFinalizeSolutionWithCachedData(&context_);
+
+      /*  --- Populate SolveStatistics with CONOPT data --- */
+      PopulateSolveStatistics(&context_);
+
+      /*  --- Cleanup temporary instances --- */
+      CleanupOldInstances();
+
+      /*  Return the solve status from the statistics */
+      if (!IsNull(stats_)) {
+         return stats_->SolveStatus();
+      }
+
+      return Solve_Succeeded;
+   }
+
+ public:
+   /**
+    * @brief The main "Solve" method.
+    * This is where we wire everything together.
+    */
+   ApplicationReturnStatus OptimizeTNLP(SmartPtr<TNLP> tnlp) {
+      if (!cntvect_ || IsNull(tnlp) || IsNull(jnlst_) || IsNull(stats_)) {
+         return Invalid_Problem_Definition;
+      }
+
+      /*  --- Store the TNLP for later verification in ReOptimizeTNLP --- */
+      tnlp_ = tnlp;
+
+      /*  --- Retrieve problem information from TNLP --- */
+      ApplicationReturnStatus info_status = RetrieveProblemInfo(tnlp);
+      if (info_status != Solve_Succeeded) {
+         return info_status;
+      }
+
+      /*  --- Setup solve instances and context --- */
+      if (!SetupSolveInstances(tnlp)) {
+         return Internal_Error;
+      }
+
+      /*  --- Register CONOPT callbacks --- */
+      ApplicationReturnStatus callback_status = RegisterConoptCallbacks();
+      if (callback_status != Solve_Succeeded) {
+         return callback_status;
       }
 
       /*  --- Set up CONOPT problem information --- */
@@ -444,51 +550,68 @@ class IpoptApplication : public ReferencedObject {
          return Internal_Error;
       }
 
-      /*  --- Solve the problem --- */
-      COI_ERROR = COI_Solve(cntvect_);
+      /*  --- Apply options and solve --- */
+      ApplicationReturnStatus solve_status = ApplyOptionsAndSolve("OptimizeTNLP");
+      if (solve_status != Solve_Succeeded) {
+         return solve_status;
+      }
 
-      /*  Check for CONOPT solve errors */
-      if (COI_ERROR != 0) {
+      /*  --- Finalize and cleanup --- */
+      return FinalizeAndCleanup();
+   }
+
+   /**
+    * @brief Reoptimize the problem without redoing all setup.
+    * This method calls COI_Solve without the setup performed in OptimizeTNLP.
+    * Options are reapplied to CONOPT before solving in case they were changed.
+    * An OptimizeTNLP call must be performed before calling this method.
+    * The SolutionStatistics, fdeval_cache, and ip_data are freed and recreated.
+    * @return ApplicationReturnStatus indicating the solve result
+    */
+   ApplicationReturnStatus ReOptimizeTNLP(SmartPtr<TNLP> tnlp) {
+      /*  Verify that OptimizeTNLP was called first */
+      if (!problem_info_.is_complete()) {
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                  "CONOPT Shim Error: COI_Solve failed with error %d\n", COI_ERROR);
+                  "CONOPT Shim Error: ReOptimizeTNLP called before OptimizeTNLP. "
+                  "Problem information is not available.\n");
          }
+         return Invalid_Problem_Definition;
+      }
+
+      if (!cntvect_ || IsNull(tnlp) || IsNull(jnlst_)) {
+         return Invalid_Problem_Definition;
+      }
+
+      /*  Verify that the TNLP matches the one used in OptimizeTNLP */
+      if (tnlp != tnlp_) {
+         if (!IsNull(jnlst_)) {
+            jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                  "CONOPT Shim Error: ReOptimizeTNLP called with different TNLP than "
+                  "OptimizeTNLP.\n");
+         }
+         return Invalid_Problem_Definition;
+      }
+
+      /*  --- Free old instances --- */
+      if (!IsNull(stats_)) {
+         stats_ = nullptr;
+      }
+      CleanupOldInstances();
+
+      /*  --- Setup solve instances and context --- */
+      if (!SetupSolveInstances(tnlp)) {
          return Internal_Error;
       }
 
-      /*  Stop timing */
-      if (!IsNull(stats_)) {
-         stats_->StopTiming();
+      /*  --- Apply options and solve (no callback registration or problem setup needed) --- */
+      ApplicationReturnStatus solve_status = ApplyOptionsAndSolve("ReOptimizeTNLP");
+      if (solve_status != Solve_Succeeded) {
+         return solve_status;
       }
 
-      /*  reporting the final solution to the user */
-      CallFinalizeSolutionWithCachedData(&context_);
-
-      /*  --- Populate SolveStatistics with CONOPT data --- */
-      PopulateSolveStatistics(&context_);
-
-      /*  --- Cleanup StatusSolution object --- */
-      if (context_.status_solution_) {
-         delete context_.status_solution_;
-         context_.status_solution_ = nullptr;
-      }
-
-      /*  --- Cleanup FDEval cache --- */
-      if (context_.fdeval_cache_) {
-         delete context_.fdeval_cache_;
-         context_.fdeval_cache_ = nullptr;
-      }
-
-      /*  --- Cleanup IpoptData --- */
-      context_.ip_data_ = nullptr;
-      ip_data_ = nullptr;
-
-      /*  Return the solve status from the statistics */
-      if (!IsNull(stats_)) {
-         return stats_->SolveStatus();
-      }
-
-      return Solve_Succeeded;
+      /*  --- Finalize and cleanup --- */
+      return FinalizeAndCleanup();
    }
 
    /** Get the Journalist for printing output */
