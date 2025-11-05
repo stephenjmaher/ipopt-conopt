@@ -104,14 +104,14 @@ struct IpoptProblemInfo {
    bool init_lambda_req;          /*  Whether initial lambda values is required from the user */
    bool has_variable_linearity;   /*  Whether variable linearity info was provided */
    bool has_constraint_linearity; /*  Whether constraint linearity info was provided */
-   bool has_nonlinear_vars;        /*  Whether nonlinear variable count was provided */
+   bool has_nonlinear_vars;       /*  Whether nonlinear variable count was provided */
 
    /*  === Scaling Parameters === */
-   Number obj_scaling;                  /*  Objective function scaling factor */
-   bool use_x_scaling;                  /*  Whether variable scaling is used */
-   std::vector<Number> x_scaling;       /*  Variable scaling factors (length n) */
-   bool use_g_scaling;                  /*  Whether constraint scaling is used */
-   std::vector<Number> g_scaling;       /*  Constraint scaling factors (length m) */
+   Number obj_scaling;            /*  Objective function scaling factor */
+   bool use_x_scaling;            /*  Whether variable scaling is used */
+   std::vector<Number> x_scaling; /*  Variable scaling factors (length n) */
+   bool use_g_scaling;            /*  Whether constraint scaling is used */
+   std::vector<Number> g_scaling; /*  Constraint scaling factors (length m) */
 
    /*  === Constructor === */
    IpoptProblemInfo()

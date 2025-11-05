@@ -95,23 +95,20 @@ class IpoptApplication : public ReferencedObject {
    /**
     * @brief Constructor: Create the CONOPT handle.
     */
-   IpoptApplication(bool create_console_out = true, bool create_empty = false) : cntvect_(nullptr), jnlst_(nullptr), stats_(nullptr), options_(nullptr) {
+   IpoptApplication(bool create_console_out = true, bool create_empty = false)
+       : cntvect_(nullptr), jnlst_(nullptr), stats_(nullptr), options_(nullptr) {
       InitializeIpoptApplication(create_console_out);
    }
 
    /*  Constructor accepting journalist */
-   IpoptApplication(SmartPtr<Journalist> jnlst) : cntvect_(nullptr), jnlst_(jnlst), stats_(nullptr), options_(nullptr) {
+   IpoptApplication(SmartPtr<Journalist> jnlst)
+       : cntvect_(nullptr), jnlst_(jnlst), stats_(nullptr), options_(nullptr) {
       InitializeIpoptApplication(true);
    }
 
-   IpoptApplication(SmartPtr<RegisteredOptions> reg_options,
-                         SmartPtr<OptionsList> options,
-                         SmartPtr<Journalist> jnlst) :
-         cntvect_(nullptr),
-         jnlst_(jnlst),
-         stats_(nullptr),
-         options_(options)
-   {
+   IpoptApplication(SmartPtr<RegisteredOptions> reg_options, SmartPtr<OptionsList> options,
+         SmartPtr<Journalist> jnlst)
+       : cntvect_(nullptr), jnlst_(jnlst), stats_(nullptr), options_(options) {
       InitializeIpoptApplication(true);
    }
 
@@ -130,7 +127,7 @@ class IpoptApplication : public ReferencedObject {
       if (!is.is_open()) {
          // This is not an error, just no file to read.
          // (Ipopt behavior: only returns true if file *was* read and parsed OK)
-         return Solve_Succeeded; // Or maybe just return, no file found
+         return Solve_Succeeded;  // Or maybe just return, no file found
       }
       return ParseOptionsStream(is, allow_clobber, GetRawPtr(jnlst_));
    }
@@ -141,7 +138,9 @@ class IpoptApplication : public ReferencedObject {
    ApplicationReturnStatus Initialize(const std::string& params_file, bool allow_clobber = false) {
       std::ifstream is(params_file);
       if (!is.is_open()) {
-         if (!IsNull(jnlst_)) jnlst_->Printf(J_ERROR, J_MAIN, "Error: Could not open options file: %s\n", params_file.c_str());
+         if (!IsNull(jnlst_))
+            jnlst_->Printf(
+                  J_ERROR, J_MAIN, "Error: Could not open options file: %s\n", params_file.c_str());
          // This is the correct Ipopt return code for a file not found
          return Invalid_Option;
       }
@@ -157,11 +156,7 @@ class IpoptApplication : public ReferencedObject {
    }
 
    /** Method to register all Ipopt options. */
-   static void RegisterAllIpoptOptions(
-      const SmartPtr<RegisteredOptions>& roptions
-   )
-   {
-   }
+   static void RegisterAllIpoptOptions(const SmartPtr<RegisteredOptions>& roptions) {}
 
    /**
     * @brief Retrieve problem information from the TNLP object
@@ -373,7 +368,7 @@ class IpoptApplication : public ReferencedObject {
       context_.tnlp_ = GetRawPtr(tnlp);
       context_.journalist_ = GetRawPtr(jnlst_);
       context_.stats_ = GetRawPtr(stats_);
-      context_.problem_info_ = &problem_info_; /*  Add problem info to context */
+      context_.problem_info_ = &problem_info_;      /*  Add problem info to context */
       context_.options_list_ = GetRawPtr(options_); /*  Add options list to context */
 
       /*  --- Create IpoptData instance --- */
@@ -497,8 +492,7 @@ class IpoptApplication : public ReferencedObject {
    }
 
    /** Get the Journalist for printing output */
-   virtual SmartPtr<Journalist> Jnlst()
-   {
+   virtual SmartPtr<Journalist> Jnlst() {
       return jnlst_;
    }
 
@@ -516,7 +510,7 @@ class IpoptApplication : public ReferencedObject {
       return options_;
    }
 
-      /** Get the IpoptData Object */
+   /** Get the IpoptData Object */
    SmartPtr<IpoptData> IpoptDataObject() {
       return ip_data_;
    }
@@ -577,7 +571,8 @@ class IpoptApplication : public ReferencedObject {
    // Helper to trim whitespace from start and end
    std::string trim(const std::string& str) {
       size_t first = str.find_first_not_of(" \t\n\r");
-      if (std::string::npos == first) return "";
+      if (std::string::npos == first)
+         return "";
       size_t last = str.find_last_not_of(" \t\n\r");
       return str.substr(first, (last - first + 1));
    }
@@ -585,15 +580,16 @@ class IpoptApplication : public ReferencedObject {
    // Helper to convert to lower-case for case-insensitive matching
    std::string to_lower(const std::string& s) {
       std::string out = s;
-      std::transform(out.begin(), out.end(), out.begin(),
-         [](unsigned char c){ return std::tolower(c); });
+      std::transform(
+            out.begin(), out.end(), out.begin(), [](unsigned char c) { return std::tolower(c); });
       return out;
    }
 
    /**
     * @brief Core logic for parsing an options stream (like ipopt.opt)
     */
-   ApplicationReturnStatus ParseOptionsStream(std::istream& is, bool allow_clobber, Journalist* jnlst) {
+   ApplicationReturnStatus ParseOptionsStream(
+         std::istream& is, bool allow_clobber, Journalist* jnlst) {
       std::string line;
       int line_num = 0;
 
@@ -606,12 +602,15 @@ class IpoptApplication : public ReferencedObject {
             line = line.substr(0, comment_pos);
          }
          line = trim(line);
-         if (line.empty()) continue;
+         if (line.empty())
+            continue;
 
          // 2. Split line at first space or '='
          size_t eq_pos = line.find_first_of("= \t");
          if (eq_pos == std::string::npos || eq_pos == 0) {
-            if (jnlst) jnlst->Printf(J_WARNING, J_MAIN, "Skipping malformed option line %d: %s\n", line_num, line.c_str());
+            if (jnlst)
+               jnlst->Printf(J_WARNING, J_MAIN, "Skipping malformed option line %d: %s\n", line_num,
+                     line.c_str());
             continue;
          }
 
@@ -623,12 +622,15 @@ class IpoptApplication : public ReferencedObject {
          Number num_val;
          std::string str_val;
          bool is_set = options_->GetIntegerValue(name, int_val, "") ||
-            options_->GetNumericValue(name, num_val, "") ||
-            options_->GetStringValue(name, str_val, "");
+               options_->GetNumericValue(name, num_val, "") ||
+               options_->GetStringValue(name, str_val, "");
 
          if (is_set && !allow_clobber) {
-            if (jnlst) jnlst->Printf(J_ERROR, J_MAIN, "Option %s on line %d conflicts with a pre-set value (allow_clobber=false).\n", name.c_str(), line_num);
-            return Invalid_Option; // Fail loudly
+            if (jnlst)
+               jnlst->Printf(J_ERROR, J_MAIN,
+                     "Option %s on line %d conflicts with a pre-set value (allow_clobber=false).\n",
+                     name.c_str(), line_num);
+            return Invalid_Option;  // Fail loudly
          }
 
          // 4. Set the value by trying to parse its type
@@ -639,7 +641,8 @@ class IpoptApplication : public ReferencedObject {
          if (!ss.fail() && ss.eof()) {
             // Successfully parsed as an integer
             options_->SetIntegerValue(name, int_val_check);
-         } else {
+         }
+         else {
             ss.clear();
             ss.str(value_str);
             Number num_val_check;
@@ -647,12 +650,13 @@ class IpoptApplication : public ReferencedObject {
             if (!ss.fail() && ss.eof()) {
                // Successfully parsed as a double
                options_->SetNumericValue(name, num_val_check);
-            } else {
+            }
+            else {
                // Treat it as a string
                options_->SetStringValue(name, value_str);
             }
          }
-      } // end while loop
+      }  // end while loop
 
       return Solve_Succeeded;
    }

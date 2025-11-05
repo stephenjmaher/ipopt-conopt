@@ -190,8 +190,8 @@ typedef struct {
    Ipopt::IpoptProblemInfo* problem_info_;
    FDEvalCache* fdeval_cache_;             /*  Cache for FDEvalIni optimization */
    ConoptStatusSolution* status_solution_; /*  Cache for status and solution data */
-   Ipopt::OptionsList* options_list_;       /*  Pointer to OptionsList to retrieve optfile name */
-   Ipopt::IpoptData* ip_data_;              /*  IpoptData instance for callbacks */
+   Ipopt::OptionsList* options_list_;      /*  Pointer to OptionsList to retrieve optfile name */
+   Ipopt::IpoptData* ip_data_;             /*  IpoptData instance for callbacks */
 } IpoptConoptContext;
 
 /**
@@ -308,11 +308,12 @@ int COI_CALLCONV Conopt_2DLagrVal(const double X[], const double U[], const int 
       const int HSCL[], double HSVL[], int* NODRV, int NUMVAR, int NUMCON, int NHESS, void* USRMEM);
 
 /*  Progress callback for intermediate iteration reporting */
-int COI_CALLCONV Conopt_Progress(int LEN_INT, const int INT[], int LEN_RL, const double RL[],
-      const double X[], void* USRMEM);
+int COI_CALLCONV Conopt_Progress(
+      int LEN_INT, const int INT[], int LEN_RL, const double RL[], const double X[], void* USRMEM);
 
 /*  Option callback for setting CONOPT options */
-int COI_CALLCONV Conopt_Option(int NCALL, double* RVAL, int* IVAL, int* LVAL, char* NAME, void* USRMEM);
+int COI_CALLCONV Conopt_Option(
+      int NCALL, double* RVAL, int* IVAL, int* LVAL, char* NAME, void* USRMEM);
 
 /*  ... and so on for all other callbacks (TriOrd, SDDir, etc.) ... */
 

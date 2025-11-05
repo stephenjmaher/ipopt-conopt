@@ -232,10 +232,8 @@ bool IsObjectiveGradientCached(IpoptConoptContext* context) {
  * @param problem_info Problem information
  * @param status_sol Status and solution data from CONOPT
  */
-static void PopulateIpoptDataFromConoptSolution(
-      IpoptConoptContext* context,
-      Ipopt::IpoptProblemInfo* problem_info,
-      ConoptStatusSolution* status_sol) {
+static void PopulateIpoptDataFromConoptSolution(IpoptConoptContext* context,
+      Ipopt::IpoptProblemInfo* problem_info, ConoptStatusSolution* status_sol) {
    if (!context || !context->ip_data_ || !problem_info || !status_sol) {
       return;
    }
@@ -259,7 +257,7 @@ static void PopulateIpoptDataFromConoptSolution(
    ip_data->Set_tau(1.0);
 
    // Set info fields from CONOPT data
-   ip_data->Set_info_alpha_primal(1.0); // Assume full step for final solution
+   ip_data->Set_info_alpha_primal(1.0);  // Assume full step for final solution
    ip_data->Set_info_alpha_dual(1.0);
    ip_data->Set_info_ls_count(0);
 
@@ -277,12 +275,8 @@ static void PopulateIpoptDataFromConoptSolution(
  * @param objval Objective value
  * @param step Step length
  */
-static void PopulateIpoptDataFromConoptProgress(
-      IpoptConoptContext* context,
-      Ipopt::IpoptProblemInfo* problem_info,
-      int iter,
-      double objval,
-      double step) {
+static void PopulateIpoptDataFromConoptProgress(IpoptConoptContext* context,
+      Ipopt::IpoptProblemInfo* problem_info, int iter, double objval, double step) {
    if (!context || !context->ip_data_ || !problem_info) {
       return;
    }
@@ -306,8 +300,8 @@ static void PopulateIpoptDataFromConoptProgress(
    ip_data->Set_tau(1.0);
 
    // Set info fields from CONOPT progress data
-   ip_data->Set_info_alpha_primal(step); // Use step length as primal step size
-   ip_data->Set_info_alpha_dual(step);   // Use step length as dual step size
+   ip_data->Set_info_alpha_primal(step);  // Use step length as primal step size
+   ip_data->Set_info_alpha_dual(step);    // Use step length as dual step size
    ip_data->Set_info_ls_count(0);
 }
 
@@ -366,8 +360,8 @@ bool CallFinalizeSolutionWithCachedData(IpoptConoptContext* context) {
                   .data(), /*  z_U (upper bound multipliers) - CONOPT provides combined marginals */
             problem_info->m, status_sol->y_solution_.data(), /*  g (constraint values) */
             status_sol->y_marginals_.data(),                 /*  lambda (constraint multipliers) */
-            status_sol->conopt_objval_, context->ip_data_, /*  ip_data - populated from CONOPT */
-            nullptr                                          /*  ip_cq - not available from CONOPT */
+            status_sol->conopt_objval_, context->ip_data_,   /*  ip_data - populated from CONOPT */
+            nullptr /*  ip_cq - not available from CONOPT */
       );
 
       if (jnlst) {
@@ -521,9 +515,9 @@ bool PopulateSolveStatistics(IpoptConoptContext* context) {
  * @param G Output parameter for function value
  * @return 0 on success, 1 on error
  */
-static int EvaluateFunctionValue(IpoptConoptContext* context,
-      Ipopt::IpoptProblemInfo* problem_info, Ipopt::Journalist* jnlst,
-      bool is_objective, Ipopt::Index conopt_constraint_idx, int ROWNO, double* G) {
+static int EvaluateFunctionValue(IpoptConoptContext* context, Ipopt::IpoptProblemInfo* problem_info,
+      Ipopt::Journalist* jnlst, bool is_objective, Ipopt::Index conopt_constraint_idx, int ROWNO,
+      double* G) {
    int result = 0; /*  Default to success */
    bool value_found = false;
 
@@ -534,8 +528,8 @@ static int EvaluateFunctionValue(IpoptConoptContext* context,
       if (value_found) {
          *G = cached_obj_value;
          if (jnlst) {
-            jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
-                  "CONOPT Shim: Using cached objective value.\n");
+            jnlst->Printf(
+                  Ipopt::J_DETAILED, Ipopt::J_NLP, "CONOPT Shim: Using cached objective value.\n");
          }
       }
       else {
@@ -552,7 +546,8 @@ static int EvaluateFunctionValue(IpoptConoptContext* context,
       /*  It's a constraint */
       /*  Check for cached constraint value first */
       double cached_constraint_value;
-      value_found = GetCachedConstraintValue(context, conopt_constraint_idx, cached_constraint_value);
+      value_found =
+            GetCachedConstraintValue(context, conopt_constraint_idx, cached_constraint_value);
       if (value_found) {
          *G = cached_constraint_value;
          if (jnlst) {
@@ -608,8 +603,8 @@ static int EvaluateObjectiveGradient(IpoptConoptContext* context,
          }
       }
       if (result == 0 && jnlst) {
-         jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
-               "CONOPT Shim: Using cached objective gradient.\n");
+         jnlst->Printf(
+               Ipopt::J_DETAILED, Ipopt::J_NLP, "CONOPT Shim: Using cached objective gradient.\n");
       }
    }
    else {
@@ -726,8 +721,8 @@ static bool EvaluateAndCacheConstraints(IpoptConoptContext* context, Ipopt::TNLP
    std::vector<Ipopt::Number> all_g(problem_info->m);
    if (!tnlp->eval_g(problem_info->n, X, true, problem_info->m, all_g.data())) {
       if (jnlst) {
-         jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP,
-               "CONOPT Shim: eval_g failed in FDEvalIni.\n");
+         jnlst->Printf(
+               Ipopt::J_WARNING, Ipopt::J_NLP, "CONOPT Shim: eval_g failed in FDEvalIni.\n");
       }
       (*ERRCNT)++;
       success = false;
@@ -811,8 +806,8 @@ static bool EvaluateAndCacheObjectiveGradient(IpoptConoptContext* context, Ipopt
    std::vector<Ipopt::Number> objective_gradient(problem_info->n);
    if (!tnlp->eval_grad_f(problem_info->n, X, true, objective_gradient.data())) {
       if (jnlst) {
-         jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP,
-               "CONOPT Shim: eval_grad_f failed in FDEvalIni.\n");
+         jnlst->Printf(
+               Ipopt::J_WARNING, Ipopt::J_NLP, "CONOPT Shim: eval_grad_f failed in FDEvalIni.\n");
       }
       (*ERRCNT)++;
       success = false;
@@ -856,12 +851,12 @@ static bool EvaluateAndCacheJacobian(IpoptConoptContext* context, Ipopt::TNLP* t
    std::vector<Ipopt::Number> jacobian_values(problem_info->nnz_jac_g);
 
    if (!tnlp->eval_jac_g(problem_info->n, X, true, problem_info->m, problem_info->nnz_jac_g,
-            nullptr, /*  Structure arrays not needed for value evaluation */
-            nullptr, /*  Structure arrays not needed for value evaluation */
-            jacobian_values.data())) {
+             nullptr, /*  Structure arrays not needed for value evaluation */
+             nullptr, /*  Structure arrays not needed for value evaluation */
+             jacobian_values.data())) {
       if (jnlst) {
-         jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP,
-               "CONOPT Shim: eval_jac_g failed in FDEvalIni.\n");
+         jnlst->Printf(
+               Ipopt::J_WARNING, Ipopt::J_NLP, "CONOPT Shim: eval_jac_g failed in FDEvalIni.\n");
       }
       (*ERRCNT)++;
       success = false;
@@ -984,9 +979,8 @@ int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[]
             Ipopt::Index pos = COLSTA[col] + col_positions[col];
             ROWNO[pos] = row;
             VALUE[pos] = 0.0; /*  Values will be computed by FDEval */
-            NLFLAG[pos] =
-                  1; /*  the NLFLAG is set to 1 for all values because Ipopt evaluates all
-                      *  expressions, even linear expressions. */
+            NLFLAG[pos] = 1;  /*  the NLFLAG is set to 1 for all values because Ipopt evaluates all
+                               *  expressions, even linear expressions. */
             col_positions[col]++;
          }
       }
@@ -1056,8 +1050,8 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double* G, double JAC[], int RO
             result = EvaluateObjectiveGradient(context, problem_info, jnlst, JAC);
          }
          else {
-            result = EvaluateConstraintJacobianRow(context, problem_info, jnlst,
-                  conopt_constraint_idx, JAC);
+            result = EvaluateConstraintJacobianRow(
+                  context, problem_info, jnlst, conopt_constraint_idx, JAC);
          }
       }
    }
@@ -1543,7 +1537,8 @@ int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char* MSG,
    if (COLNO == -1) {
       /*  Message about a row */
       if (ROWNO >= 0) {
-         jnlst->Printf(level, category, "CONOPT Row Error (Row %d): %s\n", display_row, msg.c_str());
+         jnlst->Printf(
+               level, category, "CONOPT Row Error (Row %d): %s\n", display_row, msg.c_str());
       }
       else {
          jnlst->Printf(level, category, "CONOPT Row Error: %s\n", msg.c_str());
@@ -1552,7 +1547,8 @@ int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char* MSG,
    else if (ROWNO == -1) {
       /*  Message about a column */
       if (COLNO >= 0) {
-         jnlst->Printf(level, category, "CONOPT Column Error (Col %d): %s\n", display_col, msg.c_str());
+         jnlst->Printf(
+               level, category, "CONOPT Column Error (Col %d): %s\n", display_col, msg.c_str());
       }
       else {
          jnlst->Printf(level, category, "CONOPT Column Error: %s\n", msg.c_str());
@@ -1567,8 +1563,8 @@ int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char* MSG,
       }
       else {
          /*  (row,column)-pair */
-         jnlst->Printf(level, category, "CONOPT Matrix Error (Row %d, Col %d): %s\n", display_row, display_col,
-               msg.c_str());
+         jnlst->Printf(level, category, "CONOPT Matrix Error (Row %d, Col %d): %s\n", display_row,
+               display_col, msg.c_str());
       }
    }
    else {
@@ -1597,8 +1593,8 @@ int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char* MSG,
  * @param USRMEM User memory pointer containing IpoptConoptContext
  * @return 0 to continue, non-zero to request termination
  */
-int COI_CALLCONV Conopt_Progress(int LEN_INT, const int INT[], int LEN_RL, const double RL[],
-      const double X[], void* USRMEM) {
+int COI_CALLCONV Conopt_Progress(
+      int LEN_INT, const int INT[], int LEN_RL, const double RL[], const double X[], void* USRMEM) {
    int result = 0; /*  Default to continue (0 = continue, 1 = stop) */
 
    IpoptConoptContext* context = GetContext(USRMEM);
@@ -1626,16 +1622,16 @@ int COI_CALLCONV Conopt_Progress(int LEN_INT, const int INT[], int LEN_RL, const
    }
 
    /*  Extract CONOPT progress information */
-   const int iter = INT[0];      /*  ITER: Number of the iteration */
-   const int phase = INT[1];      /*  PHASE: Phase of optimization (0-5) */
-   const int numinf = INT[2];     /*  NUMINF: Number of infeasible constraints */
+   const int iter = INT[0];   /*  ITER: Number of the iteration */
+   const int phase = INT[1];  /*  PHASE: Phase of optimization (0-5) */
+   const int numinf = INT[2]; /*  NUMINF: Number of infeasible constraints */
    /*  INT[3] = NUMNOP: Number of non-optimal variables (not used) */
    /*  INT[4] = NSUPER: Number of super-basic variables (not used) */
 
-   const double suminf = RL[0];   /*  SUMINF: Sum of infeasibilities */
-   const double objval = RL[1];   /*  OBJVAL: Value of true objective function */
-   const double rgmax = RL[2];    /*  RGMAX: Numerically largest reduced gradient */
-   const double step = RL[3];     /*  STEP: Optimal steplength */
+   const double suminf = RL[0]; /*  SUMINF: Sum of infeasibilities */
+   const double objval = RL[1]; /*  OBJVAL: Value of true objective function */
+   const double rgmax = RL[2];  /*  RGMAX: Numerically largest reduced gradient */
+   const double step = RL[3];   /*  STEP: Optimal steplength */
 
    /*  Map CONOPT phase to Ipopt AlgorithmMode */
    /*  CONOPT phases: 0=infeasible Newton, 1-2=infeasible GRG, 3-4=feasible GRG, 5=SQP */
@@ -1655,18 +1651,18 @@ int COI_CALLCONV Conopt_Progress(int LEN_INT, const int INT[], int LEN_RL, const
    Ipopt::Number ipopt_mu = 0.0;        /*  Barrier parameter - not available from CONOPT */
    Ipopt::Number ipopt_d_norm = step;   /*  Step length approximates search direction norm */
    Ipopt::Number ipopt_regularization_size = 0.0; /*  Not available from CONOPT */
-   Ipopt::Number ipopt_alpha_du = step; /*  Use step length as approximation */
-   Ipopt::Number ipopt_alpha_pr = step; /*  Use step length as approximation */
-   Ipopt::Index ipopt_ls_trials = 0;    /*  Line search trials - not available from CONOPT */
+   Ipopt::Number ipopt_alpha_du = step;           /*  Use step length as approximation */
+   Ipopt::Number ipopt_alpha_pr = step;           /*  Use step length as approximation */
+   Ipopt::Index ipopt_ls_trials = 0; /*  Line search trials - not available from CONOPT */
 
    /*  Populate IpoptData from CONOPT progress data */
    PopulateIpoptDataFromConoptProgress(context, problem_info, iter, objval, step);
 
    bool should_continue = true;
    try {
-      should_continue = tnlp->intermediate_callback(mode, ipopt_iter, ipopt_obj_value,
-            ipopt_inf_pr, ipopt_inf_du, ipopt_mu, ipopt_d_norm, ipopt_regularization_size,
-            ipopt_alpha_du, ipopt_alpha_pr, ipopt_ls_trials, context->ip_data_, nullptr);
+      should_continue = tnlp->intermediate_callback(mode, ipopt_iter, ipopt_obj_value, ipopt_inf_pr,
+            ipopt_inf_du, ipopt_mu, ipopt_d_norm, ipopt_regularization_size, ipopt_alpha_du,
+            ipopt_alpha_pr, ipopt_ls_trials, context->ip_data_, nullptr);
    }
    catch (const std::exception& e) {
       if (jnlst) {
@@ -1709,11 +1705,13 @@ int COI_CALLCONV Conopt_Progress(int LEN_INT, const int INT[], int LEN_RL, const
  * @param RVAL Output: The value if the option is a real value
  * @param IVAL Output: The value if the option is an integer value
  * @param LVAL Output: The value if the option is a logical value (0=false, non-zero=true)
- * @param NAME Output: The CONOPT CR-cell name (8 characters, padded with blanks). Blank indicates no more options.
+ * @param NAME Output: The CONOPT CR-cell name (8 characters, padded with blanks). Blank indicates
+ * no more options.
  * @param USRMEM User memory pointer containing IpoptConoptContext
  * @return 0 on success, non-zero on error
  */
-int COI_CALLCONV Conopt_Option(int NCALL, double* RVAL, int* IVAL, int* LVAL, char* NAME, void* USRMEM) {
+int COI_CALLCONV Conopt_Option(
+      int NCALL, double* RVAL, int* IVAL, int* LVAL, char* NAME, void* USRMEM) {
    int result = 0; /* Default to success */
 
    /* Cast USRMEM from double* to void* (CONOPT uses double* for Fortran compatibility) */
@@ -1741,7 +1739,8 @@ int COI_CALLCONV Conopt_Option(int NCALL, double* RVAL, int* IVAL, int* LVAL, ch
    /* GetConoptOption sets the correct value based on stored type
     * Since ConoptOption::Type is private, we pass nullptr for type
     */
-   bool has_option = context->options_list_->GetConoptOption(call_index, opt_name, &rval, &ival, &lval, nullptr);
+   bool has_option = context->options_list_->GetConoptOption(
+         call_index, opt_name, &rval, &ival, &lval, nullptr);
 
    if (!has_option) {
       /* No more options - return blank name */
@@ -1768,14 +1767,17 @@ int COI_CALLCONV Conopt_Option(int NCALL, double* RVAL, int* IVAL, int* LVAL, ch
     * CONOPT will use the value matching the CR-cell type, so we set all three
     * (CONOPT ignores values that don't match the CR-cell type)
     */
-   if (RVAL) *RVAL = rval;
-   if (IVAL) *IVAL = ival;
-   if (LVAL) *LVAL = lval;
+   if (RVAL)
+      *RVAL = rval;
+   if (IVAL)
+      *IVAL = ival;
+   if (LVAL)
+      *LVAL = lval;
 
    if (jnlst) {
       jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
-            "CONOPT Shim: Option callback - providing option %d: %s\n",
-            call_index, opt_name.c_str());
+            "CONOPT Shim: Option callback - providing option %d: %s\n", call_index,
+            opt_name.c_str());
    }
 
    return result;
