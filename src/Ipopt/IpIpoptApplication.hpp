@@ -12,6 +12,7 @@
 #include "IpJournalist.hpp"
 #include "IpTNLP.hpp"
 #include "IpOptionsList.hpp"
+#include "Ipopt/IpIpoptData.hpp"
 /*  ... etc ... */
 
 /*  2. INCLUDE THE CONOPT C-API */
@@ -59,6 +60,11 @@ class IpoptApplication : public ReferencedObject {
    SmartPtr<TNLP> tnlp_;
 
    SmartPtr<SolveStatistics> stats_;
+
+   /**
+    * @brief IpoptData instance for callbacks
+    */
+   SmartPtr<IpoptData> ip_data_;
 
    /**
     * @brief Problem information retrieved from TNLP
@@ -368,6 +374,11 @@ class IpoptApplication : public ReferencedObject {
       context_.journalist_ = GetRawPtr(jnlst_);
       context_.stats_ = GetRawPtr(stats_);
       context_.problem_info_ = &problem_info_; /*  Add problem info to context */
+      context_.options_list_ = GetRawPtr(options_); /*  Add options list to context */
+
+      /*  --- Create IpoptData instance --- */
+      ip_data_ = new IpoptData();
+      context_.ip_data_ = GetRawPtr(ip_data_);
 
       /*  --- Initialize FDEval cache --- */
       context_.fdeval_cache_ =
@@ -473,6 +484,10 @@ class IpoptApplication : public ReferencedObject {
          context_.fdeval_cache_ = nullptr;
       }
 
+      /*  --- Cleanup IpoptData --- */
+      context_.ip_data_ = nullptr;
+      ip_data_ = nullptr;
+
       /*  Return the solve status from the statistics */
       if (!IsNull(stats_)) {
          return stats_->SolveStatus();
@@ -498,7 +513,12 @@ class IpoptApplication : public ReferencedObject {
     * @brief Get options object
     */
    SmartPtr<OptionsList> Options() {
-      return GetRawPtr(options_);
+      return options_;
+   }
+
+      /** Get the IpoptData Object */
+   SmartPtr<IpoptData> IpoptDataObject() {
+      return ip_data_;
    }
 
    /**

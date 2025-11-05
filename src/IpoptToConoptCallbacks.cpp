@@ -8,6 +8,7 @@
 #include "IpJournalist.hpp"
 #include "Ipopt/IpSolveStatistics.hpp"
 #include "Ipopt/IpOptionsList.hpp"
+#include "Ipopt/IpIpoptData.hpp"
 #include "IpAlgTypes.hpp"
 #include "IpoptProblemInfo.hpp"
 #include <cassert>
@@ -15,6 +16,8 @@
 #include <string>
 #include <algorithm> /*  For std::max */
 #include <cstring>
+#include <cstddef>
+#include <memory>
 
 /*  Helper functions for status code conversions */
 namespace {
@@ -223,6 +226,91 @@ bool IsObjectiveGradientCached(IpoptConoptContext* context) {
    return cache->isObjectiveGradientCached();
 }
 
+/**
+ * @brief Populate IpoptData from CONOPT solution data
+ * @param context The context containing CONOPT solution data and IpoptData instance
+ * @param problem_info Problem information
+ * @param status_sol Status and solution data from CONOPT
+ */
+static void PopulateIpoptDataFromConoptSolution(
+      IpoptConoptContext* context,
+      Ipopt::IpoptProblemInfo* problem_info,
+      ConoptStatusSolution* status_sol) {
+   if (!context || !context->ip_data_ || !problem_info || !status_sol) {
+      return;
+   }
+
+   Ipopt::IpoptData* ip_data = context->ip_data_;
+
+   // Set iteration count
+   ip_data->Set_iter_count(status_sol->conopt_iter_);
+
+   // Set tolerance (use default if not available from options)
+   if (context->options_list_) {
+      Ipopt::Number tol = 1e-8;
+      context->options_list_->GetNumericValue("tol", tol, "");
+      ip_data->Set_tol(tol);
+   }
+
+   // Set barrier parameter (mu) - CONOPT doesn't use barrier method, so set to 0
+   ip_data->Set_mu(0.0);
+
+   // Set fraction to boundary parameter (tau) - CONOPT doesn't use this, so set to 1.0
+   ip_data->Set_tau(1.0);
+
+   // Set info fields from CONOPT data
+   ip_data->Set_info_alpha_primal(1.0); // Assume full step for final solution
+   ip_data->Set_info_alpha_dual(1.0);
+   ip_data->Set_info_ls_count(0);
+
+   // Note: We don't populate IteratesVector (curr_, trial_, etc.) because:
+   // 1. CONOPT manages its own iterates
+   // 2. The full IteratesVector structure requires complex initialization
+   // 3. User callbacks typically only need iteration count, mu, tau, and tolerance
+}
+
+/**
+ * @brief Populate IpoptData from CONOPT progress data
+ * @param context The context containing CONOPT progress data and IpoptData instance
+ * @param problem_info Problem information
+ * @param iter Iteration number
+ * @param objval Objective value
+ * @param step Step length
+ */
+static void PopulateIpoptDataFromConoptProgress(
+      IpoptConoptContext* context,
+      Ipopt::IpoptProblemInfo* problem_info,
+      int iter,
+      double objval,
+      double step) {
+   if (!context || !context->ip_data_ || !problem_info) {
+      return;
+   }
+
+   Ipopt::IpoptData* ip_data = context->ip_data_;
+
+   // Set iteration count
+   ip_data->Set_iter_count(static_cast<Ipopt::Index>(iter));
+
+   // Set tolerance (use default if not available from options)
+   if (context->options_list_) {
+      Ipopt::Number tol = 1e-8;
+      context->options_list_->GetNumericValue("tol", tol, "");
+      ip_data->Set_tol(tol);
+   }
+
+   // Set barrier parameter (mu) - CONOPT doesn't use barrier method, so set to 0
+   ip_data->Set_mu(0.0);
+
+   // Set fraction to boundary parameter (tau) - CONOPT doesn't use this, so set to 1.0
+   ip_data->Set_tau(1.0);
+
+   // Set info fields from CONOPT progress data
+   ip_data->Set_info_alpha_primal(step); // Use step length as primal step size
+   ip_data->Set_info_alpha_dual(step);   // Use step length as dual step size
+   ip_data->Set_info_ls_count(0);
+}
+
 bool CallFinalizeSolutionWithCachedData(IpoptConoptContext* context) {
    bool success = false;
 
@@ -267,7 +355,10 @@ bool CallFinalizeSolutionWithCachedData(IpoptConoptContext* context) {
       /*  Convert ApplicationReturnStatus to SolverReturn */
       Ipopt::SolverReturn solver_status = ConvertApplicationStatusToSolverReturn(status);
 
-      /*  Call finalize_solution with the cached data */
+      /*  Populate IpoptData from CONOPT solution data */
+      PopulateIpoptDataFromConoptSolution(context, problem_info, status_sol);
+
+      /*  Call finalize_solution with the cached data and populated IpoptData */
       context->tnlp_->finalize_solution(
             solver_status, problem_info->n, status_sol->x_solution_.data(),
             status_sol->x_marginals_.data(), /*  z_L (lower bound multipliers) */
@@ -275,8 +366,8 @@ bool CallFinalizeSolutionWithCachedData(IpoptConoptContext* context) {
                   .data(), /*  z_U (upper bound multipliers) - CONOPT provides combined marginals */
             problem_info->m, status_sol->y_solution_.data(), /*  g (constraint values) */
             status_sol->y_marginals_.data(),                 /*  lambda (constraint multipliers) */
-            status_sol->conopt_objval_, nullptr, /*  ip_data - not available from CONOPT */
-            nullptr                              /*  ip_cq - not available from CONOPT */
+            status_sol->conopt_objval_, context->ip_data_, /*  ip_data - populated from CONOPT */
+            nullptr                                          /*  ip_cq - not available from CONOPT */
       );
 
       if (jnlst) {
@@ -1568,12 +1659,14 @@ int COI_CALLCONV Conopt_Progress(int LEN_INT, const int INT[], int LEN_RL, const
    Ipopt::Number ipopt_alpha_pr = step; /*  Use step length as approximation */
    Ipopt::Index ipopt_ls_trials = 0;    /*  Line search trials - not available from CONOPT */
 
-   /*  Note: ip_data and ip_cq are not available in CONOPT, so we pass nullptr */
+   /*  Populate IpoptData from CONOPT progress data */
+   PopulateIpoptDataFromConoptProgress(context, problem_info, iter, objval, step);
+
    bool should_continue = true;
    try {
       should_continue = tnlp->intermediate_callback(mode, ipopt_iter, ipopt_obj_value,
             ipopt_inf_pr, ipopt_inf_du, ipopt_mu, ipopt_d_norm, ipopt_regularization_size,
-            ipopt_alpha_du, ipopt_alpha_pr, ipopt_ls_trials, nullptr, nullptr);
+            ipopt_alpha_du, ipopt_alpha_pr, ipopt_ls_trials, context->ip_data_, nullptr);
    }
    catch (const std::exception& e) {
       if (jnlst) {

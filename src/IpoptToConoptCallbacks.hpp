@@ -7,6 +7,7 @@
 
 #include "conopt.h" /*  For COI_CALLCONV and C-API types */
 #include <vector>
+#include <cstddef>
 
 /*  Forward declare Ipopt classes needed by the struct */
 namespace Ipopt {
@@ -14,6 +15,7 @@ class TNLP;
 class Journalist;
 class SolveStatistics;
 class OptionsList;
+class IpoptData;
 struct IpoptProblemInfo;
 } /*  namespace Ipopt */
 
@@ -189,6 +191,7 @@ typedef struct {
    FDEvalCache* fdeval_cache_;             /*  Cache for FDEvalIni optimization */
    ConoptStatusSolution* status_solution_; /*  Cache for status and solution data */
    Ipopt::OptionsList* options_list_;       /*  Pointer to OptionsList to retrieve optfile name */
+   Ipopt::IpoptData* ip_data_;              /*  IpoptData instance for callbacks */
 } IpoptConoptContext;
 
 /**
