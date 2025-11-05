@@ -11,6 +11,7 @@
 #include "IpSolveStatistics.hpp"
 #include "IpJournalist.hpp"
 #include "IpTNLP.hpp"
+#include "IpOptionsList.hpp"
 /*  ... etc ... */
 
 /*  2. INCLUDE THE CONOPT C-API */
@@ -19,12 +20,11 @@
 /*  3. INCLUDE OUR NEW TRAMPOLINE DECLARATIONS */
 #include "IpoptToConoptCallbacks.hpp"
 #include "IpoptProblemInfo.hpp"
+#include <fstream>
+#include <sstream>
 #include <cassert>
 #include <vector>
 #include <string>
-
-/*  4. INCLUDE OPTIONS LIST */
-#include "IpOptionsList.hpp"
 
 /*  5. FORWARD DECLARE THE OTHER SHIM CLASSES */
 namespace Ipopt {
@@ -70,32 +70,43 @@ class IpoptApplication : public ReferencedObject {
     */
    SmartPtr<OptionsList> options_;
 
- public:
-   /**
-    * @brief Constructor: Create the CONOPT handle.
-    */
-   IpoptApplication() : cntvect_(nullptr), jnlst_(new Journalist()), stats_(new SolveStatistics()), options_(new OptionsList()) {
+   void InitializeIpoptApplication(bool create_console_out) {
       COI_Create(&cntvect_);
+      stats_ = new SolveStatistics();
+      if (IsNull(options_))
+         options_ = new OptionsList();
 
       /*  Set verbose output for debugging */
-      if (!IsNull(jnlst_)) {
+      if (IsNull(jnlst_)) {
+         jnlst_ = new Journalist();
+
          /*  Use summary-level output by default to reduce verbosity */
          jnlst_->AddFileJournal("console", "stdout", Ipopt::J_SUMMARY);
       }
    }
 
-   /*  Constructor accepting journalist */
-   IpoptApplication(SmartPtr<Journalist> jnlst) : cntvect_(nullptr), jnlst_(jnlst), stats_(new SolveStatistics()), options_(new OptionsList()) {
-      COI_Create(&cntvect_);
-      if (IsNull(jnlst_)) {
-         jnlst_ = new Journalist();
-      }
+ public:
+   /**
+    * @brief Constructor: Create the CONOPT handle.
+    */
+   IpoptApplication(bool create_console_out = true, bool create_empty = false) : cntvect_(nullptr), jnlst_(nullptr), stats_(nullptr), options_(nullptr) {
+      InitializeIpoptApplication(create_console_out);
+   }
 
-      /*  Set verbose output for debugging */
-      if (!IsNull(jnlst_)) {
-         /*  Use summary-level output by default to reduce verbosity */
-         jnlst_->AddFileJournal("console", "stdout", Ipopt::J_SUMMARY);
-      }
+   /*  Constructor accepting journalist */
+   IpoptApplication(SmartPtr<Journalist> jnlst) : cntvect_(nullptr), jnlst_(jnlst), stats_(nullptr), options_(nullptr) {
+      InitializeIpoptApplication(true);
+   }
+
+   IpoptApplication(SmartPtr<RegisteredOptions> reg_options,
+                         SmartPtr<OptionsList> options,
+                         SmartPtr<Journalist> jnlst) :
+         cntvect_(nullptr),
+         jnlst_(jnlst),
+         stats_(nullptr),
+         options_(options)
+   {
+      InitializeIpoptApplication(true);
    }
 
    /**
@@ -107,13 +118,43 @@ class IpoptApplication : public ReferencedObject {
       }
    }
 
+   ApplicationReturnStatus Initialize(bool allow_clobber = false) {
+      // Try to open the default options file
+      std::ifstream is("ipopt.opt");
+      if (!is.is_open()) {
+         // This is not an error, just no file to read.
+         // (Ipopt behavior: only returns true if file *was* read and parsed OK)
+         return Solve_Succeeded; // Or maybe just return, no file found
+      }
+      return ParseOptionsStream(is, allow_clobber, GetRawPtr(jnlst_));
+   }
+
    /**
-    * @brief Initialize: Stubbed for now.
-    * We would pass options to CONOPT here.
+    * @brief Reads options from a user-specified file.
     */
-   ApplicationReturnStatus Initialize() {
-      /*  TODO: Process options, e.g. from a RegisteredOptions shim */
-      return Solve_Succeeded;
+   ApplicationReturnStatus Initialize(const std::string& params_file, bool allow_clobber = false) {
+      std::ifstream is(params_file);
+      if (!is.is_open()) {
+         if (!IsNull(jnlst_)) jnlst_->Printf(J_ERROR, J_MAIN, "Error: Could not open options file: %s\n", params_file.c_str());
+         // This is the correct Ipopt return code for a file not found
+         return Invalid_Option;
+      }
+      return ParseOptionsStream(is, allow_clobber, GetRawPtr(jnlst_));
+   }
+
+   /**
+    * @brief Reads options from any std::istream.
+    */
+   ApplicationReturnStatus Initialize(std::istream& is, bool allow_clobber = false) {
+      // This is the base implementation that the file-based methods call
+      return ParseOptionsStream(is, allow_clobber, GetRawPtr(jnlst_));
+   }
+
+   /** Method to register all Ipopt options. */
+   static void RegisterAllIpoptOptions(
+      const SmartPtr<RegisteredOptions>& roptions
+   )
+   {
    }
 
    /**
@@ -440,6 +481,12 @@ class IpoptApplication : public ReferencedObject {
       return Solve_Succeeded;
    }
 
+   /** Get the Journalist for printing output */
+   virtual SmartPtr<Journalist> Jnlst()
+   {
+      return jnlst_;
+   }
+
    /**
     * @brief Getter for statistics (stubbed)
     */
@@ -504,6 +551,90 @@ class IpoptApplication : public ReferencedObject {
       }
 
       return true;
+   }
+
+ private:
+   // Helper to trim whitespace from start and end
+   std::string trim(const std::string& str) {
+      size_t first = str.find_first_not_of(" \t\n\r");
+      if (std::string::npos == first) return "";
+      size_t last = str.find_last_not_of(" \t\n\r");
+      return str.substr(first, (last - first + 1));
+   }
+
+   // Helper to convert to lower-case for case-insensitive matching
+   std::string to_lower(const std::string& s) {
+      std::string out = s;
+      std::transform(out.begin(), out.end(), out.begin(),
+         [](unsigned char c){ return std::tolower(c); });
+      return out;
+   }
+
+   /**
+    * @brief Core logic for parsing an options stream (like ipopt.opt)
+    */
+   ApplicationReturnStatus ParseOptionsStream(std::istream& is, bool allow_clobber, Journalist* jnlst) {
+      std::string line;
+      int line_num = 0;
+
+      while (std::getline(is, line)) {
+         line_num++;
+
+         // 1. Remove comments
+         size_t comment_pos = line.find('#');
+         if (comment_pos != std::string::npos) {
+            line = line.substr(0, comment_pos);
+         }
+         line = trim(line);
+         if (line.empty()) continue;
+
+         // 2. Split line at first space or '='
+         size_t eq_pos = line.find_first_of("= \t");
+         if (eq_pos == std::string::npos || eq_pos == 0) {
+            if (jnlst) jnlst->Printf(J_WARNING, J_MAIN, "Skipping malformed option line %d: %s\n", line_num, line.c_str());
+            continue;
+         }
+
+         std::string name = to_lower(trim(line.substr(0, eq_pos)));
+         std::string value_str = trim(line.substr(eq_pos + 1));
+
+         // 3. Check allow_clobber logic
+         Index int_val;
+         Number num_val;
+         std::string str_val;
+         bool is_set = options_->GetIntegerValue(name, int_val, "") ||
+            options_->GetNumericValue(name, num_val, "") ||
+            options_->GetStringValue(name, str_val, "");
+
+         if (is_set && !allow_clobber) {
+            if (jnlst) jnlst->Printf(J_ERROR, J_MAIN, "Option %s on line %d conflicts with a pre-set value (allow_clobber=false).\n", name.c_str(), line_num);
+            return Invalid_Option; // Fail loudly
+         }
+
+         // 4. Set the value by trying to parse its type
+         // This replicates Ipopt's behavior of auto-detecting type
+         std::stringstream ss(value_str);
+         Index int_val_check;
+         ss >> int_val_check;
+         if (!ss.fail() && ss.eof()) {
+            // Successfully parsed as an integer
+            options_->SetIntegerValue(name, int_val_check);
+         } else {
+            ss.clear();
+            ss.str(value_str);
+            Number num_val_check;
+            ss >> num_val_check;
+            if (!ss.fail() && ss.eof()) {
+               // Successfully parsed as a double
+               options_->SetNumericValue(name, num_val_check);
+            } else {
+               // Treat it as a string
+               options_->SetStringValue(name, value_str);
+            }
+         }
+      } // end while loop
+
+      return Solve_Succeeded;
    }
 
    /*  ... (All other public IpoptApplication methods) ... */
