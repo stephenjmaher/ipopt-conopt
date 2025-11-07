@@ -9,8 +9,10 @@ this is the case, please create an issue requesting the feature.
 
 This project implements a bridge between two optimization solvers:
 
-- **Ipopt**: An open-source nonlinear optimization solver
-- **CONOPT**: A commercial nonlinear optimization solver from GAMS
+- **Ipopt**: An open-source nonlinear optimization solver -- the source code is available at https://github.com/coin-or/Ipopt
+- **CONOPT**: A commercial nonlinear optimization solver from GAMS -- available at https://conopt.gams.com/
+
+While CONOPT is a commercial solver, it is free to use for academic purposes. The licensing details can be found at https://conopt.gams.com/licensing/.
 
 The bridge translates Ipopt's C++ `TNLP` (Tagged Nonlinear Programming) interface to CONOPT's C API, allowing you to solve your optimization problems with CONOPT while maintaining compatibility with Ipopt-based code.
 
