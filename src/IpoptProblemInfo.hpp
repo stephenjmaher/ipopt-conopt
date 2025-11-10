@@ -68,6 +68,8 @@ struct IpoptProblemInfo {
                                                /*  constraint index (length m_split) */
    std::vector<Index> split_constraint_map;    /*  Maps original constraint index to first split */
                                                /*  constraint index (length m) */
+   std::vector<ConoptConstraintType> split_constraint_type; /*  Stores constraint type for each */
+                                                            /*  split constraint (length m_split) */
    Index objective_row_index; /*  Index of the objective row in the split constraint matrix (-1 if
                                */
                               /*  not added) */
@@ -119,7 +121,7 @@ struct IpoptProblemInfo {
          objective_row_index(-1), nnz_jac_g_split(0), num_nonlin_vars(0), init_x_req(true),
          init_z_req(false), init_lambda_req(false), has_variable_linearity(false),
          has_constraint_linearity(false), has_nonlinear_vars(false), obj_scaling(1.0),
-         use_x_scaling(false), use_g_scaling(false), upper_bound_inf(1e19) {}
+         use_x_scaling(false), use_g_scaling(false), upper_bound_inf(0.0) /* Must be set from OptionsList */ {}
 
    /*  === Utility Methods === */
 
@@ -179,7 +181,7 @@ struct IpoptProblemInfo {
       ConoptConstraintType type;
 
       /*  Check if bounds represent infinity (IPOPT uses large finite numbers like 1e19, 2e19) */
-      bool has_lower = IsFiniteNumber(g_l[orig_row]) && g_l[orig_row] < upper_bound_inf;
+      bool has_lower = IsFiniteNumber(g_l[orig_row]) && g_l[orig_row] > -upper_bound_inf;
       bool has_upper = IsFiniteNumber(g_u[orig_row]) && g_u[orig_row] < upper_bound_inf;
 
       if (has_lower && has_upper) {
@@ -210,6 +212,7 @@ struct IpoptProblemInfo {
       objective_row_index = -1;
       original_constraint_map.clear();
       split_constraint_map.clear();
+      split_constraint_type.clear();
       jacobian_split_map.clear();
 
       /*  Initialize split constraint mapping for original constraints */
@@ -233,6 +236,7 @@ struct IpoptProblemInfo {
 
       /*  Resize mapping vectors */
       original_constraint_map.resize(m_split);
+      split_constraint_type.resize(m_split);
 
       /*  Process each original constraint and create mapping */
       Index split_idx = 0;
@@ -243,13 +247,16 @@ struct IpoptProblemInfo {
          if (type == ConoptConstraintType::RANGE) {
             /*  Both bounds: create two constraints */
             original_constraint_map[split_idx] = i;
+            split_constraint_type[split_idx] = ConoptConstraintType::GREATEREQ; /*  First is >= */
             split_idx++;
             original_constraint_map[split_idx] = i;
+            split_constraint_type[split_idx] = ConoptConstraintType::LESSEQ; /*  Second is <= */
             split_idx++;
          }
          else {
             /*  for all other constraints we need one mapping. */
             original_constraint_map[split_idx] = i;
+            split_constraint_type[split_idx] = type; /*  Store the type directly */
             split_idx++;
          }
       }
@@ -258,7 +265,18 @@ struct IpoptProblemInfo {
       objective_row_index = split_idx;
       original_constraint_map[split_idx] =
             -1; /*  Special marker for objective (not a constraint) */
+      split_constraint_type[split_idx] = ConoptConstraintType::FREE;
       split_idx++;
+
+      /*  Clamp constraint bounds to upper_bound_inf if they exceed it */
+      for (Index i = 0; i < m; ++i) {
+         if (IsFiniteNumber(g_l[i]) && g_l[i] < -upper_bound_inf) {
+            g_l[i] = -upper_bound_inf;
+         }
+         if (IsFiniteNumber(g_u[i]) && g_u[i] > upper_bound_inf) {
+            g_u[i] = upper_bound_inf;
+         }
+      }
 
       /*  Now split the Jacobian structure */
       split_jacobian_structure();
@@ -335,33 +353,7 @@ struct IpoptProblemInfo {
     * @brief Get constraint type for a split constraint index
     */
    ConoptConstraintType get_split_constraint_type(Index split_idx) const {
-      /*
-       * if the index maps to the objective row, then we just return the
-       * constraint type FREE
-       */
-      if (split_idx == objective_row_index) {
-         return ConoptConstraintType::FREE;
-      }
-
-      Index orig_idx = original_constraint_map[split_idx];
-      ConoptConstraintType type = constraint_type(orig_idx);
-
-      /*
-       * if the constraint type is RANGE, then we need to get the split
-       * inequalities. The first one is always >=, then second is <=.
-       */
-      if (type == ConoptConstraintType::RANGE) {
-         /*  Determine if this is the lower or upper bound constraint */
-         Index first_split = split_constraint_map[orig_idx];
-         if (split_idx == first_split) {
-            return ConoptConstraintType::GREATEREQ;
-         }
-         else {
-            return ConoptConstraintType::LESSEQ;
-         }
-      }
-
-      return type;
+      return split_constraint_type[split_idx];
    }
 
    /**
@@ -374,24 +366,14 @@ struct IpoptProblemInfo {
       }
 
       Index orig_idx = original_constraint_map[split_idx];
-      ConoptConstraintType type = constraint_type(orig_idx);
+      ConoptConstraintType type = split_constraint_type[split_idx]; /*  Use stored split constraint type */
 
-      /*  for RANGE constraints, the first is >=, then the second is <= */
-      if (type == ConoptConstraintType::RANGE) {
-         /*  Determine if this is the lower or upper bound constraint */
-         Index first_split = split_constraint_map[orig_idx];
-         if (split_idx == first_split) {
-            return g_l[orig_idx]; /*  Lower bound (should be finite) */
-         }
-         else {
-            return g_u[orig_idx]; /*  Upper bound (should be finite) */
-         }
-      }
-      else if (type == ConoptConstraintType::EQUAL || type == ConoptConstraintType::GREATEREQ) {
-         return g_l[orig_idx]; /*  Should be finite */
+      /*  Use the stored split constraint type to determine RHS */
+      if (type == ConoptConstraintType::GREATEREQ || type == ConoptConstraintType::EQUAL) {
+         return g_l[orig_idx]; /*  Lower bound (should be finite) */
       }
       else if (type == ConoptConstraintType::LESSEQ) {
-         return g_u[orig_idx]; /*  Should be finite */
+         return g_u[orig_idx]; /*  Upper bound (should be finite) */
       }
       else {
          return 0.0; /*  FREE constraint */
@@ -428,9 +410,9 @@ struct IpoptProblemInfo {
 
    /**
     * @brief Clear all data
-    * @param infinity The infinity value to use (from OptionsList nlp_upper_bound_inf)
+    * @param infinity The infinity value to use (from OptionsList nlp_upper_bound_inf) - required parameter
     */
-   void clear(Number infinity = 1e19) {
+   void clear(Number infinity) {
       n = m = nnz_jac_g = nnz_h_lag = 0;
       m_split = nnz_jac_g_split = 0;
       objective_row_index = -1;
@@ -461,6 +443,7 @@ struct IpoptProblemInfo {
       /*  Clear split constraint mapping data */
       original_constraint_map.clear();
       split_constraint_map.clear();
+      split_constraint_type.clear();
       jacobian_split_map.clear();
       jacobian_split_rows.clear();
 

@@ -82,12 +82,19 @@ class IpoptApplication : public ReferencedObject {
       if (IsNull(options_))
          options_ = new OptionsList();
 
-      /*  Set infinity value from OptionsList */
-      Number infinity_value = 1e19; /* Default fallback */
-      if (!IsNull(options_)) {
-         options_->GetNumericValue("nlp_upper_bound_inf", infinity_value, "");
+      /*  Set infinity value from OptionsList - must be set */
+      Number infinity_value;
+      if (IsNull(options_) || !options_->GetNumericValue("nlp_upper_bound_inf", infinity_value, "")) {
+         if (!IsNull(jnlst_)) {
+            jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                  "CONOPT Shim Error: nlp_upper_bound_inf option is required but not set.\n");
+         }
+         /*  Cannot return error from constructor, but will fail when OptimizeTNLP is called */
+         /*  Leave upper_bound_inf uninitialized (0.0) - will cause error in OptimizeTNLP */
       }
-      problem_info_.upper_bound_inf = infinity_value;
+      else {
+         problem_info_.upper_bound_inf = infinity_value;
+      }
 
       /*  Set verbose output for debugging */
       if (IsNull(jnlst_)) {
@@ -211,6 +218,16 @@ class IpoptApplication : public ReferencedObject {
                   "CONOPT Shim: Failed to get bounds info from TNLP.\n");
          }
          return Invalid_Problem_Definition;
+      }
+
+      /*  Clamp variable bounds to [-upper_bound_inf, upper_bound_inf] */
+      for (Index i = 0; i < problem_info_.n; ++i) {
+         if (IsFiniteNumber(problem_info_.x_l[i]) && problem_info_.x_l[i] < -infinity) {
+            problem_info_.x_l[i] = -infinity;
+         }
+         if (IsFiniteNumber(problem_info_.x_u[i]) && problem_info_.x_u[i] > infinity) {
+            problem_info_.x_u[i] = infinity;
+         }
       }
 
       /*  3. Get starting point */
@@ -533,10 +550,14 @@ class IpoptApplication : public ReferencedObject {
       /*  --- Store the TNLP for later verification in ReOptimizeTNLP --- */
       tnlp_ = tnlp;
 
-      /*  --- Retrieve infinity value from options --- */
-      Number infinity_value = 1e19; /* Default value if option is not set */
-      if (!IsNull(options_)) {
-         options_->GetNumericValue("nlp_upper_bound_inf", infinity_value, "");
+      /*  --- Retrieve infinity value from options - must be set --- */
+      Number infinity_value;
+      if (IsNull(options_) || !options_->GetNumericValue("nlp_upper_bound_inf", infinity_value, "")) {
+         if (!IsNull(jnlst_)) {
+            jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                  "CONOPT Shim Error: nlp_upper_bound_inf option is required but not set.\n");
+         }
+         return Invalid_Option;
       }
 
       /*  --- Retrieve problem information from TNLP --- */
