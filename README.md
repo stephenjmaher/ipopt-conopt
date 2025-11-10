@@ -23,156 +23,6 @@ The bridge translates Ipopt's C++ `TNLP` (Tagged Nonlinear Programming) interfac
 - **Callback Translation**: Implements all required CONOPT C API callbacks (ReadMatrix, FDEval, Solution, Status, etc.)
 - **Status Code Mapping**: Converts CONOPT status codes to Ipopt-compatible return codes
 
-## How It Works
-
-### Problem Transformation
-
-The bridge performs several transformations to convert Ipopt problems to CONOPT format:
-
-1. **Constraint Splitting**: Range constraints (with both lower and upper bounds) are split into two separate inequality constraints
-2. **Objective Handling**: The objective function is treated as a special "free" constraint row
-3. **Hessian Reordering**: CONOPT requires Hessian entries sorted by column then row
-4. **Index Conversion**: Handles both C-style (0-based) and Fortran-style (1-based) indexing
-
-### Callback Implementation: Mapping Ipopt to CONOPT
-
-This bridge works by implementing the CONOPT C-API callback functions (the "trampolines"). These trampolines are registered with CONOPT, and when called, they cast the `void* USRMEM` cookie back into an `IpoptConoptContext*` object. This context allows the trampolines to access the user's `Ipopt::TNLP` and `Ipopt::Journalist` objects, bridging the gap between the two APIs.
-
-The core translation logic is as follows:
-
-* **`Conopt_ReadMatrix`**
-  This callback is used by CONOPT to load the entire problem definition at once. It maps to several `Ipopt::TNLP` methods (`get_bounds_info`, `get_starting_point`, and `eval_jac_g` for structure). To handle this, the `IpoptApplication` bridge calls these `TNLP` methods *before* the solve to pre-cache all problem data. This trampoline then simply copies that cached data into the arrays provided by CONOPT.
-
-* **`Conopt_FDEvalIni`**
-  These are CONOPT callbacks that are called before and after the function evaluation rounds. Since CONOPT executes a
-  GRG algorithm, compared to an interior point algorithm, the function evaluation process is a little different. The
-  main difference is that CONOPT can request the evaluation of a subset of rows, as opposed to all rows. To avoid
-  calling the evaluation methods too often, `Conopt_FDEvalIni` executes `tnlp->eval_f` and `tnlp->eval_g`, for the
-  objective and constraint functions, and `tnlp->eval_grad_f` and `tnlp->eval_jac_g`, for the objective and constraint
-  derivatives. The results of these evaluations are cached and then used in `Conopt_FDEval`.
-
-* **`Conopt_FDEval`**
-  Extracts the evaluation results from the cache and return this to CONOPT. Since CONOPT may only request evaluations
-  from a subset of rows, caching the results in `Conopt_FDEvalIni` is critically important.
-
-* **`Conopt_2DLagrStr` / `Conopt_2DLagrVal`**
-  These callbacks map directly to Ipopt's two-stage Hessian evaluation (`tnlp->eval_h`).
-
-  * `Conopt_2DLagrStr` is called first to get the sparsity structure (iRow, jCol) of the Hessian.
-
-  * `Conopt_2DLagrVal` is called later to get the numerical values for that structure, passing in the current `obj_factor` and `lambda` (multipliers).
-
-* **`Conopt_Progress`**
-  This provides intermediate iteration updates. `Conopt_Progress` is the primary iteration log, and its trampoline calls `tnlp->intermediate_callback`, allowing the user to stop the solve.
-
-* **`Conopt_Status`**
-  This reports the final solver status. The trampoline uses the `MODSTA`/`SOLSTA` codes from this callback to populate the `SolveStatistics` bridge.
-
-* **`ConGpt_Solution`**
-  This callback delivers the final solution. The trampoline receives CONOPT's solution arrays (`XVAL`, `YMAR`, etc.) and uses them to call `tnlp->finalize_solution` and to populate the `SolveStatistics` bridge with the final primal and dual values.
-
-* **`Conopt_Message` / `Conopt_ErrMsg`**
-  These are the logging callbacks. The trampoline intercepts all messages and routes them to the `Ipopt::Journalist` object (from the `USRMEM` context), which respects the user's `print_level` settings.
-
-* **`Conopt_Option`**
-  This is an optional callback for handling solver options. If used, the trampoline looks up the option requested by CONOPT (e.g., "tol_opt") in the `OptionsList` bridge and returns the corresponding value (e.g., from Ipopt's "tol").
-
-### Status Code Mapping
-
-The bridge translates CONOPT's dual status code system (MODSTA and SOLSTA) to Ipopt's `ApplicationReturnStatus` enum. CONOPT uses:
-- **MODSTA (Model Status)**: Describes the state of the model/solution (optimal, infeasible, unbounded, etc.)
-- **SOLSTA (Solver Status)**: Describes how the solver terminated (normal completion, iteration limit, error, etc.)
-
-The mapping logic prioritizes SOLSTA, then considers MODSTA for detailed interpretation. Below is the complete mapping table:
-
-#### Normal Completion (SOLSTA = 1)
-
-| MODSTA | CONOPT Meaning | Ipopt `ApplicationReturnStatus` |
-|--------|----------------|----------------------------------|
-| 1 | Optimal | `Solve_Succeeded` |
-| 2 | Locally Optimal | `Solve_Succeeded` |
-| 7 | Feasible Solution | `Solve_Succeeded` |
-| 4 | Locally Infeasible | `Infeasible_Problem_Detected` |
-| 5 | Infeasible | `Infeasible_Problem_Detected` |
-| Other | Other completion status | `Solved_To_Acceptable_Level` |
-
-#### Iteration Interrupt (SOLSTA = 2)
-
-| MODSTA | CONOPT Meaning | Ipopt `ApplicationReturnStatus` |
-|--------|----------------|----------------------------------|
-| Any | Iteration limit reached | `Maximum_Iterations_Exceeded` |
-
-#### Resource/CPU Time Limit (SOLSTA = 3)
-
-| MODSTA | CONOPT Meaning | Ipopt `ApplicationReturnStatus` |
-|--------|----------------|----------------------------------|
-| Any | CPU time limit exceeded | `Maximum_CpuTime_Exceeded` |
-
-#### Terminated by Solver (SOLSTA = 4)
-
-| MODSTA | CONOPT Meaning | Ipopt `ApplicationReturnStatus` |
-|--------|----------------|----------------------------------|
-| 3 | Unbounded (termination) | `Diverging_Iterates` |
-| 4 | Locally Infeasible (termination) | `Restoration_Failed` |
-| 5 | Infeasible (termination) | `Infeasible_Problem_Detected` |
-| 6 | Intermediate Infeasible (termination) | `Search_Direction_Becomes_Too_Small` |
-| 13 | Error No Solution (termination) | `Error_In_Step_Computation` |
-| Other | Other termination reason | `Internal_Error` |
-
-#### Evaluation Error Limit (SOLSTA = 5)
-
-| MODSTA | CONOPT Meaning | Ipopt `ApplicationReturnStatus` |
-|--------|----------------|----------------------------------|
-| Any | Evaluation error limit exceeded | `Invalid_Number_Detected` |
-
-#### Error (SOLSTA = 6)
-
-| MODSTA | CONOPT Meaning | Ipopt `ApplicationReturnStatus` |
-|--------|----------------|----------------------------------|
-| Any | Solver error | `Internal_Error` |
-
-#### User Interrupt (SOLSTA = 8)
-
-| MODSTA | CONOPT Meaning | Ipopt `ApplicationReturnStatus` |
-|--------|----------------|----------------------------------|
-| Any | User requested stop | `User_Requested_Stop` |
-
-#### Out of Memory (SOLSTA = 9)
-
-| MODSTA | CONOPT Meaning | Ipopt `ApplicationReturnStatus` |
-|--------|----------------|----------------------------------|
-| Any | Out of memory | `Insufficient_Memory` |
-
-#### System Error / Invalid Setup (SOLSTA = 10)
-
-| MODSTA | CONOPT Meaning | Ipopt `ApplicationReturnStatus` |
-|--------|----------------|----------------------------------|
-| 13 | Invalid problem definition | `Invalid_Problem_Definition` |
-| Other | Other system error | `Internal_Error` |
-
-#### Special Case: User Stop (MODSTA = 10)
-
-If MODSTA = 10 (regardless of SOLSTA), the bridge returns `User_Requested_Stop` to indicate explicit user interruption.
-
-#### ApplicationReturnStatus to SolverReturn Conversion
-
-The bridge also converts `ApplicationReturnStatus` to Ipopt's `SolverReturn` enum (used in `finalize_solution`):
-
-| ApplicationReturnStatus | SolverReturn |
-|------------------------|--------------|
-| `Solve_Succeeded` | `SUCCESS` |
-| `Solved_To_Acceptable_Level` | `STOP_AT_ACCEPTABLE_POINT` |
-| `Infeasible_Problem_Detected` | `LOCAL_INFEASIBILITY` |
-| `Search_Direction_Becomes_Too_Small` | `STOP_AT_TINY_STEP` |
-| `Diverging_Iterates` | `DIVERGING_ITERATES` |
-| `User_Requested_Stop` | `USER_REQUESTED_STOP` |
-| `Feasible_Point_Found` | `FEASIBLE_POINT_FOUND` |
-| `Maximum_Iterations_Exceeded` | `MAXITER_EXCEEDED` |
-| `Maximum_CpuTime_Exceeded` | `CPUTIME_EXCEEDED` |
-| `Error_In_Step_Computation` | `ERROR_IN_STEP_COMPUTATION` |
-| `Invalid_Number_Detected` | `INVALID_NUMBER_DETECTED` |
-| `Internal_Error` | `INTERNAL_ERROR` |
-
 ## Project Structure
 
 ### Source Code (`src/`)
@@ -221,6 +71,17 @@ Integrating the bridge into your project involves three main steps:
 3.  **Link Libraries:** Link your final executable against the compiled bridge object, the CONOPT library, and the Ipopt library.
 
 **Note:** You **must** link against the original Ipopt library (`libipopt.so` or `libipopt.a`). This bridge re-uses Ipopt's underlying object model (like `ReferencedObject` and `SmartPtr`), which requires linking to the original Ipopt library to resolve base class destructors and other utility functions.
+
+### Modifications to existing source code
+
+There are some minor changes required to your existing Ipopt interface source code. This is mainly related to removing
+heading includes that are not necessary when using CONOPT. Some includes are: `IpTNLPAdapter.hpp` and
+`IpOrigIpoptNLP.hpp`. These examples have come up in my testing, so there are likely more.
+
+The `IpIpoptCalculatedQuantities` object is not populated by the Ipopt-to-CONOPT bridge. This is mainly because many of
+the calculated quantities are related to the Ipopt algorithm. As such, these are not relevant for CONOPT. It is
+necessary to remove references to `IpIpoptCalculatedQuantities` in the `finalize_solution` and
+`intermediate_callback` callbacks. In these callbacks `IpIpoptCalculatedQuantities` is passed as a null pointer.
 
 ### CMake Example
 
@@ -448,6 +309,156 @@ The Makefiles use the following include order (important for header resolution):
 
 This order ensures that the bridge's shim headers are found before the original IPOPT headers.
 
+
+## How It Works
+
+### Problem Transformation
+
+The bridge performs several transformations to convert Ipopt problems to CONOPT format:
+
+1. **Constraint Splitting**: Range constraints (with both lower and upper bounds) are split into two separate inequality constraints
+2. **Objective Handling**: The objective function is treated as a special "free" constraint row
+3. **Hessian Reordering**: CONOPT requires Hessian entries sorted by column then row
+4. **Index Conversion**: Handles both C-style (0-based) and Fortran-style (1-based) indexing
+
+### Callback Implementation: Mapping Ipopt to CONOPT
+
+This bridge works by implementing the CONOPT C-API callback functions (the "trampolines"). These trampolines are registered with CONOPT, and when called, they cast the `void* USRMEM` cookie back into an `IpoptConoptContext*` object. This context allows the trampolines to access the user's `Ipopt::TNLP` and `Ipopt::Journalist` objects, bridging the gap between the two APIs.
+
+The core translation logic is as follows:
+
+* **`Conopt_ReadMatrix`**
+  This callback is used by CONOPT to load the entire problem definition at once. It maps to several `Ipopt::TNLP` methods (`get_bounds_info`, `get_starting_point`, and `eval_jac_g` for structure). To handle this, the `IpoptApplication` bridge calls these `TNLP` methods *before* the solve to pre-cache all problem data. This trampoline then simply copies that cached data into the arrays provided by CONOPT.
+
+* **`Conopt_FDEvalIni`**
+  These are CONOPT callbacks that are called before and after the function evaluation rounds. Since CONOPT executes a
+  GRG algorithm, compared to an interior point algorithm, the function evaluation process is a little different. The
+  main difference is that CONOPT can request the evaluation of a subset of rows, as opposed to all rows. To avoid
+  calling the evaluation methods too often, `Conopt_FDEvalIni` executes `tnlp->eval_f` and `tnlp->eval_g`, for the
+  objective and constraint functions, and `tnlp->eval_grad_f` and `tnlp->eval_jac_g`, for the objective and constraint
+  derivatives. The results of these evaluations are cached and then used in `Conopt_FDEval`.
+
+* **`Conopt_FDEval`**
+  Extracts the evaluation results from the cache and return this to CONOPT. Since CONOPT may only request evaluations
+  from a subset of rows, caching the results in `Conopt_FDEvalIni` is critically important.
+
+* **`Conopt_2DLagrStr` / `Conopt_2DLagrVal`**
+  These callbacks map directly to Ipopt's two-stage Hessian evaluation (`tnlp->eval_h`).
+
+  * `Conopt_2DLagrStr` is called first to get the sparsity structure (iRow, jCol) of the Hessian.
+
+  * `Conopt_2DLagrVal` is called later to get the numerical values for that structure, passing in the current `obj_factor` and `lambda` (multipliers).
+
+* **`Conopt_Progress`**
+  This provides intermediate iteration updates. `Conopt_Progress` is the primary iteration log, and its trampoline calls `tnlp->intermediate_callback`, allowing the user to stop the solve.
+
+* **`Conopt_Status`**
+  This reports the final solver status. The trampoline uses the `MODSTA`/`SOLSTA` codes from this callback to populate the `SolveStatistics` bridge.
+
+* **`ConGpt_Solution`**
+  This callback delivers the final solution. The trampoline receives CONOPT's solution arrays (`XVAL`, `YMAR`, etc.) and uses them to call `tnlp->finalize_solution` and to populate the `SolveStatistics` bridge with the final primal and dual values.
+
+* **`Conopt_Message` / `Conopt_ErrMsg`**
+  These are the logging callbacks. The trampoline intercepts all messages and routes them to the `Ipopt::Journalist` object (from the `USRMEM` context), which respects the user's `print_level` settings.
+
+* **`Conopt_Option`**
+  This is an optional callback for handling solver options. If used, the trampoline looks up the option requested by CONOPT (e.g., "tol_opt") in the `OptionsList` bridge and returns the corresponding value (e.g., from Ipopt's "tol").
+
+### Status Code Mapping
+
+The bridge translates CONOPT's dual status code system (MODSTA and SOLSTA) to Ipopt's `ApplicationReturnStatus` enum. CONOPT uses:
+- **MODSTA (Model Status)**: Describes the state of the model/solution (optimal, infeasible, unbounded, etc.)
+- **SOLSTA (Solver Status)**: Describes how the solver terminated (normal completion, iteration limit, error, etc.)
+
+The mapping logic prioritizes SOLSTA, then considers MODSTA for detailed interpretation. Below is the complete mapping table:
+
+#### Normal Completion (SOLSTA = 1)
+
+| MODSTA | CONOPT Meaning | Ipopt `ApplicationReturnStatus` |
+|--------|----------------|----------------------------------|
+| 1 | Optimal | `Solve_Succeeded` |
+| 2 | Locally Optimal | `Solve_Succeeded` |
+| 7 | Feasible Solution | `Solve_Succeeded` |
+| 4 | Locally Infeasible | `Infeasible_Problem_Detected` |
+| 5 | Infeasible | `Infeasible_Problem_Detected` |
+| Other | Other completion status | `Solved_To_Acceptable_Level` |
+
+#### Iteration Interrupt (SOLSTA = 2)
+
+| MODSTA | CONOPT Meaning | Ipopt `ApplicationReturnStatus` |
+|--------|----------------|----------------------------------|
+| Any | Iteration limit reached | `Maximum_Iterations_Exceeded` |
+
+#### Resource/CPU Time Limit (SOLSTA = 3)
+
+| MODSTA | CONOPT Meaning | Ipopt `ApplicationReturnStatus` |
+|--------|----------------|----------------------------------|
+| Any | CPU time limit exceeded | `Maximum_CpuTime_Exceeded` |
+
+#### Terminated by Solver (SOLSTA = 4)
+
+| MODSTA | CONOPT Meaning | Ipopt `ApplicationReturnStatus` |
+|--------|----------------|----------------------------------|
+| 3 | Unbounded (termination) | `Diverging_Iterates` |
+| 4 | Locally Infeasible (termination) | `Restoration_Failed` |
+| 5 | Infeasible (termination) | `Infeasible_Problem_Detected` |
+| 6 | Intermediate Infeasible (termination) | `Search_Direction_Becomes_Too_Small` |
+| 13 | Error No Solution (termination) | `Error_In_Step_Computation` |
+| Other | Other termination reason | `Internal_Error` |
+
+#### Evaluation Error Limit (SOLSTA = 5)
+
+| MODSTA | CONOPT Meaning | Ipopt `ApplicationReturnStatus` |
+|--------|----------------|----------------------------------|
+| Any | Evaluation error limit exceeded | `Invalid_Number_Detected` |
+
+#### Error (SOLSTA = 6)
+
+| MODSTA | CONOPT Meaning | Ipopt `ApplicationReturnStatus` |
+|--------|----------------|----------------------------------|
+| Any | Solver error | `Internal_Error` |
+
+#### User Interrupt (SOLSTA = 8)
+
+| MODSTA | CONOPT Meaning | Ipopt `ApplicationReturnStatus` |
+|--------|----------------|----------------------------------|
+| Any | User requested stop | `User_Requested_Stop` |
+
+#### Out of Memory (SOLSTA = 9)
+
+| MODSTA | CONOPT Meaning | Ipopt `ApplicationReturnStatus` |
+|--------|----------------|----------------------------------|
+| Any | Out of memory | `Insufficient_Memory` |
+
+#### System Error / Invalid Setup (SOLSTA = 10)
+
+| MODSTA | CONOPT Meaning | Ipopt `ApplicationReturnStatus` |
+|--------|----------------|----------------------------------|
+| 13 | Invalid problem definition | `Invalid_Problem_Definition` |
+| Other | Other system error | `Internal_Error` |
+
+#### Special Case: User Stop (MODSTA = 10)
+
+If MODSTA = 10 (regardless of SOLSTA), the bridge returns `User_Requested_Stop` to indicate explicit user interruption.
+
+#### ApplicationReturnStatus to SolverReturn Conversion
+
+The bridge also converts `ApplicationReturnStatus` to Ipopt's `SolverReturn` enum (used in `finalize_solution`):
+
+| ApplicationReturnStatus | SolverReturn |
+|------------------------|--------------|
+| `Solve_Succeeded` | `SUCCESS` |
+| `Solved_To_Acceptable_Level` | `STOP_AT_ACCEPTABLE_POINT` |
+| `Infeasible_Problem_Detected` | `LOCAL_INFEASIBILITY` |
+| `Search_Direction_Becomes_Too_Small` | `STOP_AT_TINY_STEP` |
+| `Diverging_Iterates` | `DIVERGING_ITERATES` |
+| `User_Requested_Stop` | `USER_REQUESTED_STOP` |
+| `Feasible_Point_Found` | `FEASIBLE_POINT_FOUND` |
+| `Maximum_Iterations_Exceeded` | `MAXITER_EXCEEDED` |
+| `Maximum_CpuTime_Exceeded` | `CPUTIME_EXCEEDED` |
+| `Error_In_Step_Computation` | `ERROR_IN_STEP_COMPUTATION` |
+| `Invalid_Number_Detected` | `INVALID_NUMBER_DETECTED` |
+| `Internal_Error` | `INTERNAL_ERROR` |
 
 ## License
 
