@@ -82,6 +82,13 @@ class IpoptApplication : public ReferencedObject {
       if (IsNull(options_))
          options_ = new OptionsList();
 
+      /*  Set infinity value from OptionsList */
+      Number infinity_value = 1e19; /* Default fallback */
+      if (!IsNull(options_)) {
+         options_->GetNumericValue("nlp_upper_bound_inf", infinity_value, "");
+      }
+      problem_info_.upper_bound_inf = infinity_value;
+
       /*  Set verbose output for debugging */
       if (IsNull(jnlst_)) {
          jnlst_ = new Journalist();
@@ -161,14 +168,16 @@ class IpoptApplication : public ReferencedObject {
    /**
     * @brief Retrieve problem information from the TNLP object
     * This method calls all the necessary TNLP methods to gather problem data
+    * @param tnlp The TNLP object to retrieve information from
+    * @param infinity The infinity value to use for determining problem type
     */
-   ApplicationReturnStatus RetrieveProblemInfo(SmartPtr<TNLP> tnlp) {
+   ApplicationReturnStatus RetrieveProblemInfo(SmartPtr<TNLP> tnlp, Number infinity) {
       if (IsNull(tnlp)) {
          return Invalid_Problem_Definition;
       }
 
-      /*  Clear any existing data */
-      problem_info_.clear();
+      /*  Clear any existing data, passing infinity value from options */
+      problem_info_.clear(infinity);
 
       /*  1. Get basic problem dimensions */
       TNLP::IndexStyleEnum index_style;
@@ -524,8 +533,14 @@ class IpoptApplication : public ReferencedObject {
       /*  --- Store the TNLP for later verification in ReOptimizeTNLP --- */
       tnlp_ = tnlp;
 
+      /*  --- Retrieve infinity value from options --- */
+      Number infinity_value = 1e19; /* Default value if option is not set */
+      if (!IsNull(options_)) {
+         options_->GetNumericValue("nlp_upper_bound_inf", infinity_value, "");
+      }
+
       /*  --- Retrieve problem information from TNLP --- */
-      ApplicationReturnStatus info_status = RetrieveProblemInfo(tnlp);
+      ApplicationReturnStatus info_status = RetrieveProblemInfo(tnlp, infinity_value);
       if (info_status != Solve_Succeeded) {
          return info_status;
       }

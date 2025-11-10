@@ -72,7 +72,10 @@ class OptionsList : public ReferencedObject {
  public:
    /* --- Public API (Replicating Ipopt) --- */
 
-   OptionsList() {}
+   OptionsList() {
+      /* adding default options */
+      numeric_options_["nlp_upper_bound_inf"] = 1e19;
+   }
    virtual ~OptionsList() {}
 
    bool SetIntegerValue(
@@ -313,6 +316,13 @@ class OptionsList : public ReferencedObject {
          else if (name == "constr_viol_tol") {
             ConoptOption opt;
             opt.name = pad_to_8("RTNWMA");
+            opt.type = ConoptOption::REAL;
+            opt.value.rval = value;
+            conopt_options_.push_back(opt);
+         }
+         else if (name == "nlp_upper_bound_inf") {
+            ConoptOption opt;
+            opt.name = pad_to_8("RTMAXV");
             opt.type = ConoptOption::REAL;
             opt.value.rval = value;
             conopt_options_.push_back(opt);

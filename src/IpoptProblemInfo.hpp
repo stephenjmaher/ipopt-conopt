@@ -6,9 +6,6 @@
 #ifndef IPOPT_PROBLEM_INFO_HPP
 #define IPOPT_PROBLEM_INFO_HPP
 
-/*  CONOPT infinity value - used to represent unbounded constraints */
-#define CONOPT_INFINITY 1e12
-
 #include <vector>
 #include <string>
 #include <algorithm>
@@ -106,6 +103,9 @@ struct IpoptProblemInfo {
    bool has_constraint_linearity; /*  Whether constraint linearity info was provided */
    bool has_nonlinear_vars;       /*  Whether nonlinear variable count was provided */
 
+   /*  === Infinity Thresholds (from options) === */
+   Number upper_bound_inf; /* Values >= this are treated as infinity */
+
    /*  === Scaling Parameters === */
    Number obj_scaling;            /*  Objective function scaling factor */
    bool use_x_scaling;            /*  Whether variable scaling is used */
@@ -119,7 +119,7 @@ struct IpoptProblemInfo {
          objective_row_index(-1), nnz_jac_g_split(0), num_nonlin_vars(0), init_x_req(true),
          init_z_req(false), init_lambda_req(false), has_variable_linearity(false),
          has_constraint_linearity(false), has_nonlinear_vars(false), obj_scaling(1.0),
-         use_x_scaling(false), use_g_scaling(false) {}
+         use_x_scaling(false), use_g_scaling(false), upper_bound_inf(1e19) {}
 
    /*  === Utility Methods === */
 
@@ -179,8 +179,8 @@ struct IpoptProblemInfo {
       ConoptConstraintType type;
 
       /*  Check if bounds represent infinity (IPOPT uses large finite numbers like 1e19, 2e19) */
-      bool has_lower = IsFiniteNumber(g_l[orig_row]) && g_l[orig_row] < CONOPT_INFINITY;
-      bool has_upper = IsFiniteNumber(g_u[orig_row]) && g_u[orig_row] < CONOPT_INFINITY;
+      bool has_lower = IsFiniteNumber(g_l[orig_row]) && g_l[orig_row] < upper_bound_inf;
+      bool has_upper = IsFiniteNumber(g_u[orig_row]) && g_u[orig_row] < upper_bound_inf;
 
       if (has_lower && has_upper) {
          if (g_l[orig_row] == g_u[orig_row])
@@ -428,8 +428,9 @@ struct IpoptProblemInfo {
 
    /**
     * @brief Clear all data
+    * @param infinity The infinity value to use (from OptionsList nlp_upper_bound_inf)
     */
-   void clear() {
+   void clear(Number infinity = 1e19) {
       n = m = nnz_jac_g = nnz_h_lag = 0;
       m_split = nnz_jac_g_split = 0;
       objective_row_index = -1;
@@ -475,6 +476,9 @@ struct IpoptProblemInfo {
       init_z_req = init_lambda_req = false;
       has_variable_linearity = has_constraint_linearity = false;
       has_nonlinear_vars = false;
+
+      /* Set infinity threshold from OptionsList */
+      upper_bound_inf = infinity;
    }
 
    /**
