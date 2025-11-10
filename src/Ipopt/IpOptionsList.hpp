@@ -305,14 +305,14 @@ class OptionsList : public ReferencedObject {
          }
          else if (name == "tol") {
             ConoptOption opt;
-            opt.name = pad_to_8("tol_opt");
+            opt.name = pad_to_8("RTREDG");
             opt.type = ConoptOption::REAL;
             opt.value.rval = value;
             conopt_options_.push_back(opt);
          }
          else if (name == "constr_viol_tol") {
             ConoptOption opt;
-            opt.name = pad_to_8("tol_feas");
+            opt.name = pad_to_8("RTNWMA");
             opt.type = ConoptOption::REAL;
             opt.value.rval = value;
             conopt_options_.push_back(opt);
@@ -331,14 +331,6 @@ class OptionsList : public ReferencedObject {
             if (value == "only-some-derivatives")
                conopt_val = 1; /* Or some other value */
             COIDEF_DebugFV(cntvect, conopt_val);
-         }
-         else if (name == "hessian_approximation") {
-            int conopt_val = (value == "exact") ? 1 : 0;
-            ConoptOption opt;
-            opt.name = pad_to_8("hess");
-            opt.type = ConoptOption::INTEGER;
-            opt.value.ival = conopt_val;
-            conopt_options_.push_back(opt);
          }
       }
 
