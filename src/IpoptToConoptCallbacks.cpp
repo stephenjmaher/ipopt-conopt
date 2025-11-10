@@ -1723,6 +1723,7 @@ int COI_CALLCONV Conopt_Option(
       /* If no context or options list, return blank name (no more options) */
       if (NAME) {
          std::memset(NAME, ' ', 8);
+         NAME[8] = '\0'; /* Null terminator to prevent buffer over-reads */
       }
       return 0;
    }
@@ -1746,6 +1747,7 @@ int COI_CALLCONV Conopt_Option(
       /* No more options - return blank name */
       if (NAME) {
          std::memset(NAME, ' ', 8);
+         NAME[8] = '\0'; /* Null terminator to prevent buffer over-reads */
       }
       if (jnlst) {
          jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
@@ -1756,11 +1758,29 @@ int COI_CALLCONV Conopt_Option(
 
    /* Copy the option name to NAME buffer (must be exactly 8 characters) */
    if (NAME) {
-      std::memset(NAME, ' ', 8); /* Initialize with blanks */
+      /* Initialize entire buffer with blanks - CONOPT expects exactly 8 characters, Fortran-style */
+      std::memset(NAME, ' ', 8);
+
       if (opt_name.length() > 0) {
+         /* Ensure we have exactly 8 characters to copy */
+         /* The opt_name should already be padded to 8 by pad_to_8(), but be defensive */
          size_t copy_len = std::min(opt_name.length(), static_cast<size_t>(8));
-         std::strncpy(NAME, opt_name.c_str(), copy_len);
+
+         /* Copy the characters - use data() to avoid null terminator issues */
+         if (copy_len > 0) {
+            std::memcpy(NAME, opt_name.data(), copy_len);
+         }
+
+         /* If the string was shorter than 8, the remaining bytes are already blanks from memset above */
+         /* If the string was exactly 8, we've copied all 8 bytes */
       }
+      /* If opt_name was empty, NAME is already all blanks from memset */
+
+      /* CRITICAL: Add null terminator to prevent CONOPT from reading beyond 8 bytes.
+       * CONOPT's error reporting code appears to treat NAME as a C string, so we need
+       * to null-terminate it even though the API docs say it's Fortran-style (8 bytes).
+       * We assume CONOPT allocated at least 9 bytes for the buffer. */
+      NAME[8] = '\0';
    }
 
    /* Set the appropriate value - GetConoptOption already set the correct one based on type
