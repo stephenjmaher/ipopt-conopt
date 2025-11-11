@@ -936,11 +936,10 @@ int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[]
          RHS[i] = problem_info->get_split_constraint_rhs(i);
 
          /*  the equation status is not being given at this stage, since this requires the functions
-          */
-         /*
-          * to be evaluated first.
-          * TODO: consider whether this is necessary.
-          * ESTA[i] = 0;
+          *  to be evaluated first.
+          *
+          *  TODO: consider whether this is necessary.
+          *  ESTA[i] = 0;
           */
       }
 
@@ -979,8 +978,8 @@ int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[]
             Ipopt::Index pos = COLSTA[col] + col_positions[col];
             ROWNO[pos] = row;
             VALUE[pos] = 0.0; /*  Values will be computed by FDEval */
-            NLFLAG[pos] = 1;  /*  the NLFLAG is set to 1 for all values because Ipopt evaluates all
-                               *  expressions, even linear expressions. */
+            /*  Set NLFLAG based on whether this entry is nonlinear */
+            NLFLAG[pos] = problem_info->is_jacobian_entry_nonlinear(k) ? 1 : 0;
             col_positions[col]++;
          }
       }

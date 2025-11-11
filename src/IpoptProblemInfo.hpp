@@ -79,8 +79,14 @@ struct IpoptProblemInfo {
    std::vector<Index> jac_g_jCol;    /*  Jacobian column indices (length nnz_jac_g) */
    std::vector<Number> jac_g_values; /*  Jacobian values (length nnz_jac_g) */
 
+   /*  === Nonlinear Terms in Jacobian === */
+   bool nonlinear_terms_collected;   /*  Whether nonlinear terms were collected */
+   Index n_nl_terms;                 /*  Number of nonlinear terms in the Jacobian */
+   std::vector<bool> jac_g_is_nonlinear; /*  Mapping: jac_g_is_nonlinear[k] = true if Jacobian entry k is nonlinear (length nnz_jac_g) */
+
    /*  === Jacobian Splitting Mapping (for CONOPT) === */
    Index nnz_jac_g_split; /*  Number of non-zeros in split Jacobian */
+   Index nnz_jac_g_split_nl; /*  Number of nonlinear non-zeros in split Jacobian */
    std::vector<Index>
          jacobian_split_map; /*  Maps split Jacobian index to original Jacobian index */
                              /*  (length nnz_jac_g_split) */
@@ -118,10 +124,11 @@ struct IpoptProblemInfo {
    /*  === Constructor === */
    IpoptProblemInfo()
        : n(0), m(0), nnz_jac_g(0), nnz_h_lag(0), index_style(C_STYLE), m_split(0),
-         objective_row_index(-1), nnz_jac_g_split(0), num_nonlin_vars(0), init_x_req(true),
+         objective_row_index(-1), nnz_jac_g_split(0), nnz_jac_g_split_nl(0), num_nonlin_vars(0), init_x_req(true),
          init_z_req(false), init_lambda_req(false), has_variable_linearity(false),
-         has_constraint_linearity(false), has_nonlinear_vars(false), obj_scaling(1.0),
-         use_x_scaling(false), use_g_scaling(false), upper_bound_inf(0.0) /* Must be set from OptionsList */ {}
+         has_constraint_linearity(false), has_nonlinear_vars(false), nonlinear_terms_collected(false),
+         n_nl_terms(0), obj_scaling(1.0), use_x_scaling(false), use_g_scaling(false),
+         upper_bound_inf(0.0) /* Must be set from OptionsList */ {}
 
    /*  === Utility Methods === */
 
@@ -287,6 +294,7 @@ struct IpoptProblemInfo {
     */
    void split_jacobian_structure() {
       nnz_jac_g_split = 0;
+      nnz_jac_g_split_nl = 0;
       jacobian_split_map.clear();
 
       /*  Count non-zeros for split Jacobian */
@@ -311,20 +319,29 @@ struct IpoptProblemInfo {
       jacobian_split_map.resize(nnz_jac_g_split);
       jacobian_split_rows.resize(nnz_jac_g_split);
 
-      /*  Create split Jacobian mapping */
+      /*  Create split Jacobian mapping and count nonlinear entries */
       Index split_k = 0;
       for (Index k = 0; k < nnz_jac_g; ++k) {
          Index orig_row = jac_g_iRow[k];
          ConoptConstraintType type = constraint_type(orig_row);
+         bool is_nonlinear = nonlinear_terms_collected &&
+                             k < static_cast<Index>(jac_g_is_nonlinear.size()) &&
+                             jac_g_is_nonlinear[k];
 
          if (type == ConoptConstraintType::RANGE) {
             /*  Both bounds: create two entries */
             Index first_split = split_constraint_map[orig_row];
             jacobian_split_map[split_k] = k;            /*  Map to original Jacobian entry */
             jacobian_split_rows[split_k] = first_split; /*  Lower bound constraint */
+            if (is_nonlinear) {
+               nnz_jac_g_split_nl++;
+            }
             split_k++;
             jacobian_split_map[split_k] = k;                /*  Map to original Jacobian entry */
             jacobian_split_rows[split_k] = first_split + 1; /*  Upper bound constraint */
+            if (is_nonlinear) {
+               nnz_jac_g_split_nl++;
+            }
             split_k++;
          }
          else {
@@ -332,6 +349,9 @@ struct IpoptProblemInfo {
             Index split_row = split_constraint_map[orig_row];
             jacobian_split_map[split_k] = k;
             jacobian_split_rows[split_k] = split_row;
+            if (is_nonlinear) {
+               nnz_jac_g_split_nl++;
+            }
             split_k++;
          }
       }
@@ -339,10 +359,15 @@ struct IpoptProblemInfo {
       /*
        * Add objective function gradient entries (dense row)
        * These don't map to original Jacobian (they're new)
+       * Objective gradient entries are considered nonlinear
        */
       for (Index j = 0; j < n; ++j) {
          jacobian_split_map[split_k] = -1; /*  Special marker for objective gradient */
          jacobian_split_rows[split_k] = objective_row_index; /*  Objective constraint row */
+         if (nonlinear_terms_collected) {
+            /*  Objective gradient entries are nonlinear */
+            nnz_jac_g_split_nl++;
+         }
          split_k++;
       }
    }
@@ -401,6 +426,35 @@ struct IpoptProblemInfo {
    }
 
    /**
+    * @brief Check if a Jacobian entry is nonlinear
+    * @param k Split Jacobian entry index (0-based)
+    * @return true if the entry is nonlinear, false otherwise
+    *
+    * This method maps the split index to the original index and checks nonlinearity.
+    * Objective gradient entries (where jacobian_split_map[k] == -1) are
+    * considered nonlinear by default.
+    */
+   bool is_jacobian_entry_nonlinear(Index k) const {
+      if (!nonlinear_terms_collected || k < 0 ||
+            k >= static_cast<Index>(jacobian_split_map.size())) {
+         /*  If nonlinear terms not collected, default to nonlinear (safe assumption) */
+         return true;
+      }
+
+      Index orig_k = jacobian_split_map[k];
+      if (orig_k == -1) {
+         /*  This is an objective gradient entry - assume nonlinear */
+         return true;
+      }
+
+      /*  Check the original Jacobian entry */
+      if (orig_k < 0 || orig_k >= static_cast<Index>(jac_g_is_nonlinear.size())) {
+         return false;
+      }
+      return jac_g_is_nonlinear[orig_k];
+   }
+
+   /**
     * @brief Check if all required information is available
     */
    bool is_complete() const {
@@ -414,10 +468,12 @@ struct IpoptProblemInfo {
     */
    void clear(Number infinity) {
       n = m = nnz_jac_g = nnz_h_lag = 0;
-      m_split = nnz_jac_g_split = 0;
+      m_split = nnz_jac_g_split = nnz_jac_g_split_nl = 0;
       objective_row_index = -1;
       index_style = C_STYLE;
       num_nonlin_vars = 0;
+      nonlinear_terms_collected = false;
+      n_nl_terms = 0;
 
       x_l.clear();
       x_u.clear();
@@ -434,6 +490,7 @@ struct IpoptProblemInfo {
       jac_g_iRow.clear();
       jac_g_jCol.clear();
       jac_g_values.clear();
+      jac_g_is_nonlinear.clear();
 
       hess_iRow.clear();
       hess_jCol.clear();
@@ -459,6 +516,8 @@ struct IpoptProblemInfo {
       init_z_req = init_lambda_req = false;
       has_variable_linearity = has_constraint_linearity = false;
       has_nonlinear_vars = false;
+      nonlinear_terms_collected = false;
+      n_nl_terms = 0;
 
       /* Set infinity threshold from OptionsList */
       upper_bound_inf = infinity;

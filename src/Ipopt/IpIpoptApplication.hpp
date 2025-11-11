@@ -26,6 +26,7 @@
 #include <cassert>
 #include <vector>
 #include <string>
+#include <map>
 
 /*  5. FORWARD DECLARE THE OTHER SHIM CLASSES */
 namespace Ipopt {
@@ -307,30 +308,106 @@ class IpoptApplication : public ReferencedObject {
                problem_info_.jac_g_jCol[k] = problem_info_.jac_g_jCol[k] - 1;
             }
          }
+
+         /*  4.5. Get nonlinear terms in Jacobian (if available) */
+         if (problem_info_.nnz_jac_g > 0) {
+            /*  Allocate arrays for nonlinear term indices */
+            std::vector<Index> nl_iRow(problem_info_.nnz_jac_g);
+            std::vector<Index> nl_jCol(problem_info_.nnz_jac_g);
+            Index n_nl_terms = 0;
+
+            /*  Call get_nonlinear_terms - it may return false if not implemented */
+            if (tnlp->get_nonlinear_terms(problem_info_.n, problem_info_.m, n_nl_terms,
+                      nl_iRow.data(), nl_jCol.data())) {
+               /*  Nonlinear terms were provided - store them */
+               problem_info_.nonlinear_terms_collected = true;
+               problem_info_.n_nl_terms = n_nl_terms;
+
+               /*  Convert FORTRAN indices (1-based) to C-style (0-based) if needed */
+               if (problem_info_.index_style == FORTRAN_STYLE) {
+                  for (Index k = 0; k < n_nl_terms; ++k) {
+                     nl_iRow[k] = nl_iRow[k] - 1;
+                     nl_jCol[k] = nl_jCol[k] - 1;
+                  }
+               }
+
+               /*  Create a mapping from (row, col) pairs to Jacobian entry indices */
+               /*  First, build a map from (row, col) to Jacobian index */
+               std::map<std::pair<Index, Index>, Index> jacobian_map;
+               for (Index k = 0; k < problem_info_.nnz_jac_g; ++k) {
+                  jacobian_map[std::make_pair(problem_info_.jac_g_iRow[k],
+                            problem_info_.jac_g_jCol[k])] = k;
+               }
+
+               /*  Mark nonlinear entries in jac_g_is_nonlinear */
+               for (Index k = 0; k < n_nl_terms; ++k) {
+                  auto it = jacobian_map.find(std::make_pair(nl_iRow[k], nl_jCol[k]));
+                  if (it != jacobian_map.end()) {
+                     Index jac_idx = it->second;
+                     if (jac_idx >= 0 && jac_idx < problem_info_.nnz_jac_g) {
+                        problem_info_.jac_g_is_nonlinear[jac_idx] = true;
+                     }
+                  }
+               }
+
+               if (!IsNull(jnlst_)) {
+                  jnlst_->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
+                        "CONOPT Shim: Collected %d nonlinear terms from Jacobian.\n",
+                        static_cast<int>(n_nl_terms));
+               }
+            }
+            else {
+               /*  Nonlinear terms not provided - mark as not collected */
+               problem_info_.nonlinear_terms_collected = false;
+               problem_info_.n_nl_terms = 0;
+               if (!IsNull(jnlst_)) {
+                  jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
+                        "CONOPT Shim: Nonlinear terms not provided by TNLP.\n");
+               }
+            }
+         }
       }
 
-      /*  5. Get Hessian structure (if needed) */
+      /*  5. Get Hessian structure (only if nonlinear terms were collected) */
       if (problem_info_.nnz_h_lag > 0) {
-         if (!tnlp->eval_h(problem_info_.n, problem_info_.x_init.data(), true, 1.0, problem_info_.m,
-                   problem_info_.lambda_init.data(), true, problem_info_.nnz_h_lag,
-                   problem_info_.hess_iRow.data(), problem_info_.hess_jCol.data(), nullptr)) {
+         if (problem_info_.nonlinear_terms_collected) {
+            if (!tnlp->eval_h(problem_info_.n, problem_info_.x_init.data(), true, 1.0,
+                      problem_info_.m, problem_info_.lambda_init.data(), true,
+                      problem_info_.nnz_h_lag, problem_info_.hess_iRow.data(),
+                      problem_info_.hess_jCol.data(), nullptr)) {
+               if (!IsNull(jnlst_)) {
+                  jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                        "CONOPT Shim: Failed to get Hessian structure from TNLP.\n");
+               }
+               return Invalid_Problem_Definition;
+            }
+
+            /*  Convert FORTRAN indices (1-based) to C-style (0-based) if needed */
+            if (problem_info_.index_style == FORTRAN_STYLE) {
+               for (Index k = 0; k < problem_info_.nnz_h_lag; ++k) {
+                  problem_info_.hess_iRow[k] = problem_info_.hess_iRow[k] - 1;
+                  problem_info_.hess_jCol[k] = problem_info_.hess_jCol[k] - 1;
+               }
+            }
+
+            /*  Compute CONOPT ordering permutation once here */
+            problem_info_.compute_hessian_permutation();
+
             if (!IsNull(jnlst_)) {
-               jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                     "CONOPT Shim: Failed to get Hessian structure from TNLP.\n");
-            }
-            return Invalid_Problem_Definition;
-         }
-
-         /*  Convert FORTRAN indices (1-based) to C-style (0-based) if needed */
-         if (problem_info_.index_style == FORTRAN_STYLE) {
-            for (Index k = 0; k < problem_info_.nnz_h_lag; ++k) {
-               problem_info_.hess_iRow[k] = problem_info_.hess_iRow[k] - 1;
-               problem_info_.hess_jCol[k] = problem_info_.hess_jCol[k] - 1;
+               jnlst_->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
+                     "CONOPT Shim: Collected Hessian structure (%d non-zeros).\n",
+                     static_cast<int>(problem_info_.nnz_h_lag));
             }
          }
-
-         /*  Compute CONOPT ordering permutation once here */
-         problem_info_.compute_hessian_permutation();
+         else {
+            /*  Nonlinear terms not collected - skip Hessian collection */
+            /*  Set nnz_h_lag to 0 to indicate no Hessian will be used */
+            problem_info_.nnz_h_lag = 0;
+            if (!IsNull(jnlst_)) {
+               jnlst_->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
+                     "CONOPT Shim: Skipping Hessian collection (nonlinear terms not collected).\n");
+            }
+         }
       }
 
       /*  6. Get optional information (these may not be implemented by all TNLPs) */
@@ -456,9 +533,9 @@ class IpoptApplication : public ReferencedObject {
 
       /*
        * Hessian of Lagrangian callbacks
-       * these are only used if the hessian structure is provided.
+       * these are only used if the hessian structure is provided AND nonlinear terms were collected.
        */
-      if (problem_info_.nnz_h_lag > 0) {
+      if (problem_info_.nnz_h_lag > 0 && problem_info_.nonlinear_terms_collected) {
          COI_ERROR += COIDEF_2DLagrStr(cntvect_, Conopt_2DLagrStr);
          COI_ERROR += COIDEF_2DLagrVal(cntvect_, Conopt_2DLagrVal);
       }
@@ -702,7 +779,9 @@ class IpoptApplication : public ReferencedObject {
       COI_ERROR += COIDEF_NumVar(cntvect_, problem_info_.n);
       COI_ERROR += COIDEF_NumCon(cntvect_, problem_info_.m_split);
       COI_ERROR += COIDEF_NumNz(cntvect_, problem_info_.nnz_jac_g_split);
-      COI_ERROR += COIDEF_NumNlNz(cntvect_, problem_info_.nnz_jac_g_split);
+      /*  Use split nonlinear count if nonlinear terms were collected, otherwise use total split count */
+      int num_nl_nz = problem_info_.nonlinear_terms_collected ? problem_info_.nnz_jac_g_split_nl : problem_info_.nnz_jac_g_split;
+      COI_ERROR += COIDEF_NumNlNz(cntvect_, num_nl_nz);
       COI_ERROR += COIDEF_NumHess(cntvect_, problem_info_.nnz_h_lag);
 
       assert(problem_info_.objective_row_index >= 0);
