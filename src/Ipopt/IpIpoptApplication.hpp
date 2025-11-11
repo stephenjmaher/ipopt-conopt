@@ -85,7 +85,8 @@ class IpoptApplication : public ReferencedObject {
 
       /*  Set infinity value from OptionsList - must be set */
       Number infinity_value;
-      if (IsNull(options_) || !options_->GetNumericValue("nlp_upper_bound_inf", infinity_value, "")) {
+      if (IsNull(options_) ||
+            !options_->GetNumericValue("nlp_upper_bound_inf", infinity_value, "")) {
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
                   "CONOPT Shim Error: nlp_upper_bound_inf option is required but not set.\n");
@@ -345,8 +346,8 @@ class IpoptApplication : public ReferencedObject {
                /*  First, build a map from (row, col) to Jacobian index */
                std::map<std::pair<Index, Index>, Index> jacobian_map;
                for (Index k = 0; k < problem_info_.nnz_jac_g; ++k) {
-                  jacobian_map[std::make_pair(problem_info_.jac_g_iRow[k],
-                            problem_info_.jac_g_jCol[k])] = k;
+                  jacobian_map[std::make_pair(
+                        problem_info_.jac_g_iRow[k], problem_info_.jac_g_jCol[k])] = k;
                }
 
                /*  Mark nonlinear entries in jac_g_is_nonlinear */
@@ -543,7 +544,8 @@ class IpoptApplication : public ReferencedObject {
 
       /*
        * Hessian of Lagrangian callbacks
-       * these are only used if the hessian structure is provided AND nonlinear terms were collected.
+       * these are only used if the hessian structure is provided AND nonlinear terms were
+       * collected.
        */
       if (problem_info_.nnz_h_lag > 0 && problem_info_.nonlinear_terms_collected) {
          COI_ERROR += COIDEF_2DLagrStr(cntvect_, Conopt_2DLagrStr);
@@ -639,7 +641,8 @@ class IpoptApplication : public ReferencedObject {
 
       /*  --- Retrieve infinity value from options - must be set --- */
       Number infinity_value;
-      if (IsNull(options_) || !options_->GetNumericValue("nlp_upper_bound_inf", infinity_value, "")) {
+      if (IsNull(options_) ||
+            !options_->GetNumericValue("nlp_upper_bound_inf", infinity_value, "")) {
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
                   "CONOPT Shim Error: nlp_upper_bound_inf option is required but not set.\n");
@@ -801,8 +804,10 @@ class IpoptApplication : public ReferencedObject {
       COI_ERROR += COIDEF_NumVar(cntvect_, problem_info_.n);
       COI_ERROR += COIDEF_NumCon(cntvect_, problem_info_.m_split);
       COI_ERROR += COIDEF_NumNz(cntvect_, problem_info_.nnz_jac_g_split);
-      /*  Use split nonlinear count if nonlinear terms were collected, otherwise use total split count */
-      int num_nl_nz = problem_info_.nonlinear_terms_collected ? problem_info_.nnz_jac_g_split_nl : problem_info_.nnz_jac_g_split;
+      /*  Use split nonlinear count if nonlinear terms were collected, otherwise use total split
+       * count */
+      int num_nl_nz = problem_info_.nonlinear_terms_collected ? problem_info_.nnz_jac_g_split_nl
+                                                              : problem_info_.nnz_jac_g_split;
       COI_ERROR += COIDEF_NumNlNz(cntvect_, num_nl_nz);
       COI_ERROR += COIDEF_NumHess(cntvect_, problem_info_.nnz_h_lag);
 

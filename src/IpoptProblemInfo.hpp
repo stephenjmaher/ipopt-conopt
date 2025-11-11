@@ -80,12 +80,13 @@ struct IpoptProblemInfo {
    std::vector<Number> jac_g_values; /*  Jacobian values (length nnz_jac_g) */
 
    /*  === Nonlinear Terms in Jacobian === */
-   bool nonlinear_terms_collected;   /*  Whether nonlinear terms were collected */
-   Index n_nl_terms;                 /*  Number of nonlinear terms in the Jacobian */
-   std::vector<bool> jac_g_is_nonlinear; /*  Mapping: jac_g_is_nonlinear[k] = true if Jacobian entry k is nonlinear (length nnz_jac_g) */
+   bool nonlinear_terms_collected;       /*  Whether nonlinear terms were collected */
+   Index n_nl_terms;                     /*  Number of nonlinear terms in the Jacobian */
+   std::vector<bool> jac_g_is_nonlinear; /*  Mapping: jac_g_is_nonlinear[k] = true if Jacobian entry
+                                            k is nonlinear (length nnz_jac_g) */
 
    /*  === Jacobian Splitting Mapping (for CONOPT) === */
-   Index nnz_jac_g_split; /*  Number of non-zeros in split Jacobian */
+   Index nnz_jac_g_split;    /*  Number of non-zeros in split Jacobian */
    Index nnz_jac_g_split_nl; /*  Number of nonlinear non-zeros in split Jacobian */
    std::vector<Index>
          jacobian_split_map; /*  Maps split Jacobian index to original Jacobian index */
@@ -123,12 +124,10 @@ struct IpoptProblemInfo {
 
    /*  === Constructor === */
    IpoptProblemInfo()
-       : n(0), m(0), nnz_jac_g(0), nnz_h_lag(0), index_style(C_STYLE),
-         num_nonlin_vars(0), m_split(0), objective_row_index(-1),
-         nonlinear_terms_collected(false), n_nl_terms(0),
-         nnz_jac_g_split(0), nnz_jac_g_split_nl(0),
-         init_x_req(true), init_z_req(false), init_lambda_req(false),
-         has_variable_linearity(false), has_constraint_linearity(false),
+       : n(0), m(0), nnz_jac_g(0), nnz_h_lag(0), index_style(C_STYLE), num_nonlin_vars(0),
+         m_split(0), objective_row_index(-1), nonlinear_terms_collected(false), n_nl_terms(0),
+         nnz_jac_g_split(0), nnz_jac_g_split_nl(0), init_x_req(true), init_z_req(false),
+         init_lambda_req(false), has_variable_linearity(false), has_constraint_linearity(false),
          has_nonlinear_vars(false), upper_bound_inf(0.0) /* Must be set from OptionsList */,
          obj_scaling(1.0), use_x_scaling(false), use_g_scaling(false) {}
 
@@ -327,8 +326,7 @@ struct IpoptProblemInfo {
          Index orig_row = jac_g_iRow[k];
          ConoptConstraintType type = constraint_type(orig_row);
          bool is_nonlinear = nonlinear_terms_collected &&
-                             k < static_cast<Index>(jac_g_is_nonlinear.size()) &&
-                             jac_g_is_nonlinear[k];
+               k < static_cast<Index>(jac_g_is_nonlinear.size()) && jac_g_is_nonlinear[k];
 
          if (type == ConoptConstraintType::RANGE) {
             /*  Both bounds: create two entries */
@@ -393,7 +391,8 @@ struct IpoptProblemInfo {
       }
 
       Index orig_idx = original_constraint_map[split_idx];
-      ConoptConstraintType type = split_constraint_type[split_idx]; /*  Use stored split constraint type */
+      ConoptConstraintType type =
+            split_constraint_type[split_idx]; /*  Use stored split constraint type */
 
       /*  Use the stored split constraint type to determine RHS */
       if (type == ConoptConstraintType::GREATEREQ || type == ConoptConstraintType::EQUAL) {
@@ -460,14 +459,17 @@ struct IpoptProblemInfo {
     * @brief Check if all required information is available
     */
    bool is_complete() const {
-      return (n > 0 && m >= 0 && static_cast<Index>(x_l.size()) == n && static_cast<Index>(x_u.size()) == n &&
-            static_cast<Index>(g_l.size()) == m && static_cast<Index>(g_u.size()) == m &&
-            static_cast<Index>(jac_g_iRow.size()) == nnz_jac_g && static_cast<Index>(jac_g_jCol.size()) == nnz_jac_g);
+      return (n > 0 && m >= 0 && static_cast<Index>(x_l.size()) == n &&
+            static_cast<Index>(x_u.size()) == n && static_cast<Index>(g_l.size()) == m &&
+            static_cast<Index>(g_u.size()) == m &&
+            static_cast<Index>(jac_g_iRow.size()) == nnz_jac_g &&
+            static_cast<Index>(jac_g_jCol.size()) == nnz_jac_g);
    }
 
    /**
     * @brief Clear all data
-    * @param infinity The infinity value to use (from OptionsList nlp_upper_bound_inf) - required parameter
+    * @param infinity The infinity value to use (from OptionsList nlp_upper_bound_inf) - required
+    * parameter
     */
    void clear(Number infinity) {
       n = m = nnz_jac_g = nnz_h_lag = 0;

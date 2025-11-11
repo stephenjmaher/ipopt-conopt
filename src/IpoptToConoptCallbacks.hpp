@@ -94,9 +94,8 @@ struct FDEvalCache {
     * @param num_variables Number of variables (for objective gradient)
     */
    FDEvalCache(int num_constraints, int nnz_jacobian, int num_variables)
-       : objective_value_(0.0), objective_valid_(false),
-         objective_gradient_valid_(false), jacobian_cached_(false),
-         num_constraints_(num_constraints), nnz_jacobian_(nnz_jacobian),
+       : objective_value_(0.0), objective_valid_(false), objective_gradient_valid_(false),
+         jacobian_cached_(false), num_constraints_(num_constraints), nnz_jacobian_(nnz_jacobian),
          num_variables_(num_variables) {
       constraint_values_.resize(num_constraints, 0.0);
       objective_gradient_.resize(num_variables, 0.0);

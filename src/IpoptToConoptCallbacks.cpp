@@ -1036,7 +1036,8 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double* G, double JAC[], int RO
          return 1; /*  Critical error */
       }
       /*  Map CONOPT constraint index to Ipopt constraint index using the mapping */
-      /*  Note: original_constraint_map[conopt_constraint_idx] maps to the original Ipopt constraint */
+      /*  Note: original_constraint_map[conopt_constraint_idx] maps to the original Ipopt constraint
+       */
    }
 
    try {
@@ -1620,8 +1621,8 @@ int COI_CALLCONV Conopt_Progress(
    }
 
    /*  Extract CONOPT progress information */
-   const int iter = INT[0];   /*  ITER: Number of the iteration */
-   const int phase = INT[1];  /*  PHASE: Phase of optimization (0-5) */
+   const int iter = INT[0];  /*  ITER: Number of the iteration */
+   const int phase = INT[1]; /*  PHASE: Phase of optimization (0-5) */
    /*  INT[2] = NUMINF: Number of infeasible constraints (not used) */
    /*  INT[3] = NUMNOP: Number of non-optimal variables (not used) */
    /*  INT[4] = NSUPER: Number of super-basic variables (not used) */
@@ -1756,7 +1757,8 @@ int COI_CALLCONV Conopt_Option(
 
    /* Copy the option name to NAME buffer (must be exactly 8 characters) */
    if (NAME) {
-      /* Initialize entire buffer with blanks - CONOPT expects exactly 8 characters, Fortran-style */
+      /* Initialize entire buffer with blanks - CONOPT expects exactly 8 characters, Fortran-style
+       */
       std::memset(NAME, ' ', 8);
 
       if (opt_name.length() > 0) {
@@ -1769,7 +1771,8 @@ int COI_CALLCONV Conopt_Option(
             std::memcpy(NAME, opt_name.data(), copy_len);
          }
 
-         /* If the string was shorter than 8, the remaining bytes are already blanks from memset above */
+         /* If the string was shorter than 8, the remaining bytes are already blanks from memset
+          * above */
          /* If the string was exactly 8, we've copied all 8 bytes */
       }
       /* If opt_name was empty, NAME is already all blanks from memset */
