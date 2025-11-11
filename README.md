@@ -83,6 +83,11 @@ the calculated quantities are related to the Ipopt algorithm. As such, these are
 necessary to remove references to `IpIpoptCalculatedQuantities` in the `finalize_solution` and
 `intermediate_callback` callbacks. In these callbacks `IpIpoptCalculatedQuantities` is passed as a null pointer.
 
+There is not a direct mapping between the Jacobian structure of Ipopt and CONOPT. This is because CONOPT doesn't
+consider linear terms in the Jacobian evaluations. As such, it is not possible to derive the correct Hessian structure
+for CONOPT from the Jacobian structure provided by the Ipopt callbacks. There is a method added to the `TNLP` class,
+`get_nonlinear_terms` that can be implemented to inform CONOPT of the terms in the Jacobian that are nonlinear.
+
 ### CMake Example
 
 Using CMake is the recommended way to build your project. The following `CMakeLists.txt` demonstrates the correct setup.
