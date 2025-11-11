@@ -138,7 +138,7 @@ class IPOPTLIB_EXPORT IpoptData : public ReferencedObject {
          bool want_z_L, bool want_z_U) {
       DBG_ASSERT(initialize_called_);
 
-      // Simplified implementation for CONOPT shim
+      // Simplified implementation for CONOPT bridge
       // CONOPT manages its own iterates, so we don't need to fully initialize
       // IteratesVector structures. However, we still mark that prototypes are available
       // for compatibility with code that checks have_prototypes_.
@@ -274,7 +274,7 @@ class IPOPTLIB_EXPORT IpoptData : public ReferencedObject {
          Number alpha, const Vector& delta_x, const Vector& delta_s) {
       DBG_ASSERT(have_prototypes_);
 
-      // Simplified implementation for CONOPT shim
+      // Simplified implementation for CONOPT bridge
       // CONOPT manages its own iterates, so we don't actually update trial vectors
       // This is a stub for compatibility with Ipopt interface
       // In a full Ipopt implementation, this would:
@@ -283,7 +283,7 @@ class IPOPTLIB_EXPORT IpoptData : public ReferencedObject {
       // 3. Create new s = curr_->s() + alpha * delta_s
       // 4. Set trial_ to new IteratesVector with updated x and s
 
-      // For CONOPT shim, we mark that trial exists (even if it's NULL)
+      // For CONOPT bridge, we mark that trial exists (even if it's NULL)
       // This allows AcceptTrialPoint to work correctly
    }
    /** Set the values of the trial values for the equality constraint
@@ -294,7 +294,7 @@ class IPOPTLIB_EXPORT IpoptData : public ReferencedObject {
          Number alpha, const Vector& delta_y_c, const Vector& delta_y_d) {
       DBG_ASSERT(have_prototypes_);
 
-      // Simplified implementation for CONOPT shim
+      // Simplified implementation for CONOPT bridge
       // CONOPT manages its own iterates, so we don't actually update trial multipliers
       // This is a stub for compatibility with Ipopt interface
       // In a full Ipopt implementation, this would:
@@ -303,7 +303,7 @@ class IPOPTLIB_EXPORT IpoptData : public ReferencedObject {
       // 3. Create new y_d = curr_->y_d() + alpha * delta_y_d
       // 4. Update trial_ with new multiplier values
 
-      // For CONOPT shim, this is a no-op since CONOPT manages its own multipliers
+      // For CONOPT bridge, this is a no-op since CONOPT manages its own multipliers
    }
 
    /** Set the value of the trial values for the bound multipliers
@@ -314,7 +314,7 @@ class IPOPTLIB_EXPORT IpoptData : public ReferencedObject {
          const Vector& delta_z_U, const Vector& delta_v_L, const Vector& delta_v_U) {
       DBG_ASSERT(have_prototypes_);
 
-      // Simplified implementation for CONOPT shim
+      // Simplified implementation for CONOPT bridge
       // CONOPT manages its own iterates, so we don't actually update trial multipliers
       // This is a stub for compatibility with Ipopt interface
       // In a full Ipopt implementation, this would:
@@ -325,7 +325,7 @@ class IPOPTLIB_EXPORT IpoptData : public ReferencedObject {
       // 5. Create new v_U = curr_->v_U() + alpha * delta_v_U
       // 6. Update trial_ with new multiplier values
 
-      // For CONOPT shim, this is a no-op since CONOPT manages its own multipliers
+      // For CONOPT bridge, this is a no-op since CONOPT manages its own multipliers
    }
 
    /** get the current delta */
@@ -343,7 +343,7 @@ class IPOPTLIB_EXPORT IpoptData : public ReferencedObject {
     *  same) so after you call set, you cannot modify the data
     */
    void set_delta(SmartPtr<IteratesVector>& delta) {
-      // Stub implementation for CONOPT shim
+      // Stub implementation for CONOPT bridge
       // CONOPT doesn't use delta information, so we don't store it
       // Clear the parameter as expected by the interface
       delta = NULL;
@@ -366,7 +366,7 @@ class IPOPTLIB_EXPORT IpoptData : public ReferencedObject {
     *  const IteratesVector.
     */
    void set_delta(SmartPtr<const IteratesVector>& delta) {
-      // Stub implementation for CONOPT shim
+      // Stub implementation for CONOPT bridge
       // CONOPT doesn't use delta information, so we don't store it
       // Clear the parameter as expected by the interface
       delta = NULL;
@@ -396,7 +396,7 @@ class IPOPTLIB_EXPORT IpoptData : public ReferencedObject {
     *  same) so after you call set, you cannot modify the data
     */
    inline void set_delta_aff(SmartPtr<IteratesVector>& delta_aff) {
-      // Stub implementation for CONOPT shim
+      // Stub implementation for CONOPT bridge
       // CONOPT doesn't use affine delta information, so we don't store it
       // Clear the parameter as expected by the interface
       delta_aff = NULL;

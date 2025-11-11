@@ -28,7 +28,7 @@
 #include <string>
 #include <map>
 
-/*  5. FORWARD DECLARE THE OTHER SHIM CLASSES */
+/*  5. FORWARD DECLARE THE OTHER BRIDGE CLASSES */
 namespace Ipopt {
 class TNLP;
 class Journal;
@@ -39,11 +39,11 @@ class SolveStatistics;
 
 namespace Ipopt {
 
-/*  Forward declare our shim class */
+/*  Forward declare our bridge class */
 class SolveStatistics;
 
 /**
- * @brief This is your shim class for IpoptApplication.
+ * @brief This is your bridge class for IpoptApplication.
  * It holds the CONOPT C-API handle and wires up the callbacks.
  */
 class IpoptApplication : public ReferencedObject {
@@ -89,7 +89,7 @@ class IpoptApplication : public ReferencedObject {
             !options_->GetNumericValue("nlp_upper_bound_inf", infinity_value, "")) {
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                  "CONOPT Shim Error: nlp_upper_bound_inf option is required but not set.\n");
+                  "CONOPT Bridge Error: nlp_upper_bound_inf option is required but not set.\n");
          }
          /*  Cannot return error from constructor, but will fail when OptimizeTNLP is called */
          /*  Leave upper_bound_inf uninitialized (0.0) - will cause error in OptimizeTNLP */
@@ -204,17 +204,17 @@ class IpoptApplication : public ReferencedObject {
                 problem_info_.nnz_h_lag, index_style)) {
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                  "CONOPT Shim: Failed to get NLP info from TNLP.\n");
+                  "CONOPT Bridge: Failed to get NLP info from TNLP.\n");
          }
          return Invalid_Problem_Definition;
       }
 
-      /*  Store the index style - we'll handle FORTRAN by converting indices in the shim */
+      /*  Store the index style - we'll handle FORTRAN by converting indices in the bridge */
       problem_info_.index_style = (index_style == TNLP::FORTRAN_STYLE) ? FORTRAN_STYLE : C_STYLE;
 
       if (problem_info_.index_style == FORTRAN_STYLE && !IsNull(jnlst_)) {
          jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
-               "CONOPT Shim: FORTRAN-style indexing detected. "
+               "CONOPT Bridge: FORTRAN-style indexing detected. "
                "Converting row/column indices to C-style for CONOPT.\n");
       }
 
@@ -227,7 +227,7 @@ class IpoptApplication : public ReferencedObject {
                 problem_info_.g_u.data())) {
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                  "CONOPT Shim: Failed to get bounds info from TNLP.\n");
+                  "CONOPT Bridge: Failed to get bounds info from TNLP.\n");
          }
          return Invalid_Problem_Definition;
       }
@@ -249,7 +249,7 @@ class IpoptApplication : public ReferencedObject {
                 problem_info_.init_lambda_req, problem_info_.lambda_init.data())) {
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                  "CONOPT Shim: Failed to get starting point from TNLP.\n");
+                  "CONOPT Bridge: Failed to get starting point from TNLP.\n");
          }
          return Invalid_Problem_Definition;
       }
@@ -283,7 +283,7 @@ class IpoptApplication : public ReferencedObject {
 
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
-                  "CONOPT Shim: Scaling parameters retrieved (obj_scaling=%g, use_x_scaling=%s, \n"
+                  "CONOPT Bridge: Scaling parameters retrieved (obj_scaling=%g, use_x_scaling=%s, \n"
                   "use_g_scaling=%s).\n",
                   obj_scaling_temp, use_x_scaling_temp ? "true" : "false",
                   use_g_scaling_temp ? "true" : "false");
@@ -296,7 +296,7 @@ class IpoptApplication : public ReferencedObject {
          problem_info_.use_g_scaling = false;
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
-                  "CONOPT Shim: No scaling parameters provided, using defaults.\n");
+                  "CONOPT Bridge: No scaling parameters provided, using defaults.\n");
          }
       }
 
@@ -307,7 +307,7 @@ class IpoptApplication : public ReferencedObject {
                    problem_info_.jac_g_jCol.data(), nullptr)) {
             if (!IsNull(jnlst_)) {
                jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                     "CONOPT Shim: Failed to get Jacobian structure from TNLP.\n");
+                     "CONOPT Bridge: Failed to get Jacobian structure from TNLP.\n");
             }
             return Invalid_Problem_Definition;
          }
@@ -363,7 +363,7 @@ class IpoptApplication : public ReferencedObject {
 
                if (!IsNull(jnlst_)) {
                   jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
-                        "CONOPT Shim: Collected %d nonlinear terms from Jacobian.\n",
+                        "CONOPT Bridge: Collected %d nonlinear terms from Jacobian.\n",
                         static_cast<int>(n_nl_terms));
                }
             }
@@ -373,7 +373,7 @@ class IpoptApplication : public ReferencedObject {
                problem_info_.n_nl_terms = 0;
                if (!IsNull(jnlst_)) {
                   jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
-                        "CONOPT Shim: Nonlinear terms not provided by TNLP.\n");
+                        "CONOPT Bridge: Nonlinear terms not provided by TNLP.\n");
                }
             }
          }
@@ -388,7 +388,7 @@ class IpoptApplication : public ReferencedObject {
                       problem_info_.hess_jCol.data(), nullptr)) {
                if (!IsNull(jnlst_)) {
                   jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                        "CONOPT Shim: Failed to get Hessian structure from TNLP.\n");
+                        "CONOPT Bridge: Failed to get Hessian structure from TNLP.\n");
                }
                return Invalid_Problem_Definition;
             }
@@ -406,7 +406,7 @@ class IpoptApplication : public ReferencedObject {
 
             if (!IsNull(jnlst_)) {
                jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
-                     "CONOPT Shim: Collected Hessian structure (%d non-zeros).\n",
+                     "CONOPT Bridge: Collected Hessian structure (%d non-zeros).\n",
                      static_cast<int>(problem_info_.nnz_h_lag));
             }
          }
@@ -416,7 +416,7 @@ class IpoptApplication : public ReferencedObject {
             problem_info_.nnz_h_lag = 0;
             if (!IsNull(jnlst_)) {
                jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
-                     "CONOPT Shim: Skipping Hessian collection (nonlinear terms not collected).\n");
+                     "CONOPT Bridge: Skipping Hessian collection (nonlinear terms not collected).\n");
             }
          }
       }
@@ -444,14 +444,14 @@ class IpoptApplication : public ReferencedObject {
       if (!problem_info_.is_complete()) {
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                  "CONOPT Shim: Incomplete problem information retrieved.\n");
+                  "CONOPT Bridge: Incomplete problem information retrieved.\n");
          }
          return Invalid_Problem_Definition;
       }
 
       if (!IsNull(jnlst_)) {
          jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
-               "CONOPT Shim: Problem info retrieved and constraints split successfully.\n%s",
+               "CONOPT Bridge: Problem info retrieved and constraints split successfully.\n%s",
                problem_info_.to_string().c_str());
       }
 
@@ -556,7 +556,7 @@ class IpoptApplication : public ReferencedObject {
       if (COI_ERROR != 0) {
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                  "CONOPT Shim Error: Callback registration failed with error %d\n", COI_ERROR);
+                  "CONOPT Bridge Error: Callback registration failed with error %d\n", COI_ERROR);
          }
          return Internal_Error;
       }
@@ -575,7 +575,7 @@ class IpoptApplication : public ReferencedObject {
          if (!options_->ApplyToConopt(cntvect_, GetRawPtr(jnlst_))) {
             if (!IsNull(jnlst_)) {
                jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                     "CONOPT Shim Error: Failed to apply options to CONOPT in %s.\n",
+                     "CONOPT Bridge Error: Failed to apply options to CONOPT in %s.\n",
                      error_context);
             }
             return Internal_Error;
@@ -589,7 +589,7 @@ class IpoptApplication : public ReferencedObject {
       if (COI_ERROR != 0) {
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                  "CONOPT Shim Error: COI_Solve failed in %s with error %d\n", error_context,
+                  "CONOPT Bridge Error: COI_Solve failed in %s with error %d\n", error_context,
                   COI_ERROR);
          }
          return Internal_Error;
@@ -645,7 +645,7 @@ class IpoptApplication : public ReferencedObject {
             !options_->GetNumericValue("nlp_upper_bound_inf", infinity_value, "")) {
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                  "CONOPT Shim Error: nlp_upper_bound_inf option is required but not set.\n");
+                  "CONOPT Bridge Error: nlp_upper_bound_inf option is required but not set.\n");
          }
          return Invalid_Option;
       }
@@ -671,7 +671,7 @@ class IpoptApplication : public ReferencedObject {
       if (!SetupConoptProblem()) {
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                  "CONOPT Shim Error: Failed to set up CONOPT problem information.\n");
+                  "CONOPT Bridge Error: Failed to set up CONOPT problem information.\n");
          }
          return Internal_Error;
       }
@@ -699,7 +699,7 @@ class IpoptApplication : public ReferencedObject {
       if (!problem_info_.is_complete()) {
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                  "CONOPT Shim Error: ReOptimizeTNLP called before OptimizeTNLP. "
+                  "CONOPT Bridge Error: ReOptimizeTNLP called before OptimizeTNLP. "
                   "Problem information is not available.\n");
          }
          return Invalid_Problem_Definition;
@@ -713,7 +713,7 @@ class IpoptApplication : public ReferencedObject {
       if (tnlp != tnlp_) {
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                  "CONOPT Shim Error: ReOptimizeTNLP called with different TNLP than "
+                  "CONOPT Bridge Error: ReOptimizeTNLP called with different TNLP than "
                   "OptimizeTNLP.\n");
          }
          return Invalid_Problem_Definition;
@@ -726,7 +726,7 @@ class IpoptApplication : public ReferencedObject {
                 problem_info_.init_lambda_req, problem_info_.lambda_init.data())) {
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                  "CONOPT Shim: Failed to get starting point from TNLP in ReOptimizeTNLP.\n");
+                  "CONOPT Bridge: Failed to get starting point from TNLP in ReOptimizeTNLP.\n");
          }
          return Invalid_Problem_Definition;
       }
@@ -785,7 +785,7 @@ class IpoptApplication : public ReferencedObject {
       if (!cntvect_) {
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                  "CONOPT Shim Error: CONOPT handle is NULL in SetupConoptProblem.\n");
+                  "CONOPT Bridge Error: CONOPT handle is NULL in SetupConoptProblem.\n");
          }
          return false;
       }
@@ -795,7 +795,7 @@ class IpoptApplication : public ReferencedObject {
 
       if (!IsNull(jnlst_)) {
          jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
-               "CONOPT Shim: Setting problem dimensions: n=%d, m_split=%d, nnz_jac_g_split=%d, "
+               "CONOPT Bridge: Setting problem dimensions: n=%d, m_split=%d, nnz_jac_g_split=%d, "
                "nnz_h_lag=%d\n",
                problem_info_.n, problem_info_.m_split, problem_info_.nnz_jac_g_split,
                problem_info_.nnz_h_lag);
@@ -824,7 +824,7 @@ class IpoptApplication : public ReferencedObject {
       if (COI_ERROR != 0) {
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                  "CONOPT Shim Error: Problem setup failed with total error %d\n", COI_ERROR);
+                  "CONOPT Bridge Error: Problem setup failed with total error %d\n", COI_ERROR);
          }
          return false;
       }

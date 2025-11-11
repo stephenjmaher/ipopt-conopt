@@ -22,7 +22,7 @@
 namespace Ipopt {
 
 /**
- * @brief This is your shim class for OptionsList.
+ * @brief This is your bridge class for OptionsList.
  * It stores option values set by the user and provides a method
  * to apply them to the CONOPT C-API.
  */
@@ -244,11 +244,11 @@ class OptionsList : public ReferencedObject {
       return static_cast<int>(conopt_options_.size());
    }
 
-   /* --- Internal Shim Method --- */
+   /* --- Internal Bridge Method --- */
 
    /**
     * @brief Translates and applies all stored options to the CONOPT handle.
-    * This is called by the IpoptApplication shim before COI_Solve().
+    * This is called by the IpoptApplication bridge before COI_Solve().
     * @param cntvect CONOPT handle
     * @param jnlst Journalist for logging
     */
@@ -350,7 +350,7 @@ class OptionsList : public ReferencedObject {
 
       if (jnlst && !conopt_options_.empty()) {
          jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
-               "CONOPT Shim: Stored %d options to be set via Option callback.\n",
+               "CONOPT Bridge: Stored %d options to be set via Option callback.\n",
                static_cast<int>(conopt_options_.size()));
       }
 
