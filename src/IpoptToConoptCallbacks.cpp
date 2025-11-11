@@ -365,7 +365,7 @@ bool CallFinalizeSolutionWithCachedData(IpoptConoptContext* context) {
       );
 
       if (jnlst) {
-         jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
+         jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
                "CONOPT Shim: finalize_solution called with status %d (MODSTA=%d, SOLSTA=%d).\n",
                static_cast<int>(status), status_sol->conopt_modsta_, status_sol->conopt_solsta_);
       }
@@ -476,7 +476,7 @@ bool PopulateSolveStatistics(IpoptConoptContext* context) {
        */
 
       if (jnlst) {
-         jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
+         jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
                "CONOPT Shim: SolveStatistics populated (iterations=%d, obj=%g, status=%d).\n",
                status_sol->conopt_iter_, status_sol->conopt_objval_,
                static_cast<int>(solve_status));
@@ -1468,7 +1468,7 @@ int COI_CALLCONV Conopt_Message(int SMSG, int DMSG, int NMSG, char* MSGV[], void
          msg.pop_back();
       }
       /*  Screen messages are for immediate display - use SUMMARY level */
-      jnlst->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN, "%s\n", msg.c_str());
+      jnlst->Printf(Ipopt::J_ITERSUMMARY, Ipopt::J_MAIN, "%s\n", msg.c_str());
    }
 
    /*  Process Status file messages (NMSG lines) - solution summary */

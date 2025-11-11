@@ -100,9 +100,6 @@ class IpoptApplication : public ReferencedObject {
       /*  Set verbose output for debugging */
       if (IsNull(jnlst_)) {
          jnlst_ = new Journalist();
-
-         /*  Use summary-level output by default to reduce verbosity */
-         jnlst_->AddFileJournal("console", "stdout", Ipopt::J_SUMMARY);
       }
    }
 
@@ -136,7 +133,16 @@ class IpoptApplication : public ReferencedObject {
       }
    }
 
+   void InitializeDefaultJournal() {
+      if (!IsNull(jnlst_)) {
+         /*  Use summary-level output by default to reduce verbosity */
+         jnlst_->AddFileJournal("console", "stdout", Ipopt::J_ITERSUMMARY);
+      }
+   }
+
    ApplicationReturnStatus Initialize(bool allow_clobber = false) {
+      InitializeDefaultJournal();
+
       // Try to open the default options file
       std::ifstream is("ipopt.opt");
       if (!is.is_open()) {
@@ -151,6 +157,8 @@ class IpoptApplication : public ReferencedObject {
     * @brief Reads options from a user-specified file.
     */
    ApplicationReturnStatus Initialize(const std::string& params_file, bool allow_clobber = false) {
+      InitializeDefaultJournal();
+
       std::ifstream is(params_file);
       if (!is.is_open()) {
          if (!IsNull(jnlst_))
@@ -166,6 +174,8 @@ class IpoptApplication : public ReferencedObject {
     * @brief Reads options from any std::istream.
     */
    ApplicationReturnStatus Initialize(std::istream& is, bool allow_clobber = false) {
+      InitializeDefaultJournal();
+
       // This is the base implementation that the file-based methods call
       return ParseOptionsStream(is, allow_clobber, GetRawPtr(jnlst_));
    }
@@ -202,7 +212,7 @@ class IpoptApplication : public ReferencedObject {
       problem_info_.index_style = (index_style == TNLP::FORTRAN_STYLE) ? FORTRAN_STYLE : C_STYLE;
 
       if (problem_info_.index_style == FORTRAN_STYLE && !IsNull(jnlst_)) {
-         jnlst_->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
+         jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
                "CONOPT Shim: FORTRAN-style indexing detected. "
                "Converting row/column indices to C-style for CONOPT.\n");
       }
@@ -351,7 +361,7 @@ class IpoptApplication : public ReferencedObject {
                }
 
                if (!IsNull(jnlst_)) {
-                  jnlst_->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
+                  jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
                         "CONOPT Shim: Collected %d nonlinear terms from Jacobian.\n",
                         static_cast<int>(n_nl_terms));
                }
@@ -394,7 +404,7 @@ class IpoptApplication : public ReferencedObject {
             problem_info_.compute_hessian_permutation();
 
             if (!IsNull(jnlst_)) {
-               jnlst_->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
+               jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
                      "CONOPT Shim: Collected Hessian structure (%d non-zeros).\n",
                      static_cast<int>(problem_info_.nnz_h_lag));
             }
@@ -404,7 +414,7 @@ class IpoptApplication : public ReferencedObject {
             /*  Set nnz_h_lag to 0 to indicate no Hessian will be used */
             problem_info_.nnz_h_lag = 0;
             if (!IsNull(jnlst_)) {
-               jnlst_->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
+               jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
                      "CONOPT Shim: Skipping Hessian collection (nonlinear terms not collected).\n");
             }
          }
@@ -439,7 +449,7 @@ class IpoptApplication : public ReferencedObject {
       }
 
       if (!IsNull(jnlst_)) {
-         jnlst_->Printf(Ipopt::J_SUMMARY, Ipopt::J_MAIN,
+         jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
                "CONOPT Shim: Problem info retrieved and constraints split successfully.\n%s",
                problem_info_.to_string().c_str());
       }
