@@ -921,6 +921,10 @@ int COI_CALLCONV Conopt_ReadMatrix(double LOWER[], double CURR[], double UPPER[]
          LOWER[i] = problem_info->x_l[i];
          UPPER[i] = problem_info->x_u[i];
          CURR[i] = problem_info->x_init[i];
+         if (CURR[i] > UPPER[i])
+            CURR[i] = UPPER[i];
+         else if (CURR[i] < LOWER[i])
+            CURR[i] = LOWER[i];
 
          int varstatus = -1;
          if (CURR[i] == LOWER[i] || CURR[i] == UPPER[i])

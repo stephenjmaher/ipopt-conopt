@@ -706,6 +706,18 @@ class IpoptApplication : public ReferencedObject {
          return Invalid_Problem_Definition;
       }
 
+      /*  --- Update starting point from TNLP --- */
+      if (!tnlp->get_starting_point(problem_info_.n, problem_info_.init_x_req,
+                problem_info_.x_init.data(), problem_info_.init_z_req,
+                problem_info_.z_L_init.data(), problem_info_.z_U_init.data(), problem_info_.m,
+                problem_info_.init_lambda_req, problem_info_.lambda_init.data())) {
+         if (!IsNull(jnlst_)) {
+            jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                  "CONOPT Shim: Failed to get starting point from TNLP in ReOptimizeTNLP.\n");
+         }
+         return Invalid_Problem_Definition;
+      }
+
       /*  --- Free old instances --- */
       if (!IsNull(stats_)) {
          stats_ = nullptr;
