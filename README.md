@@ -75,18 +75,22 @@ Integrating the bridge into your project involves three main steps:
 ### Modifications to existing source code
 
 There are some minor changes required to your existing Ipopt interface source code. This is mainly related to removing
-heading includes that are not necessary when using CONOPT. Some includes are: `IpTNLPAdapter.hpp` and
-`IpOrigIpoptNLP.hpp`. These examples have come up in my testing, so there are likely more.
+heading includes that are not necessary when using CONOPT. 
 
-The `IpIpoptCalculatedQuantities` object is not populated by the Ipopt-to-CONOPT bridge. This is mainly because many of
-the calculated quantities are related to the Ipopt algorithm. As such, these are not relevant for CONOPT. It is
-necessary to remove references to `IpIpoptCalculatedQuantities` in the `finalize_solution` and
-`intermediate_callback` callbacks. In these callbacks `IpIpoptCalculatedQuantities` is passed as a null pointer.
+- Remove the include of header files that conflict with the Ipopt-to-CONOPT bridge. Some examples are: `IpTNLPAdapter.hpp`
+  and `IpOrigIpoptNLP.hpp`. These examples have come up in my testing, so there are likely more.
 
-There is not a direct mapping between the Jacobian structure of Ipopt and CONOPT. This is because CONOPT doesn't
-consider linear terms in the Jacobian evaluations. As such, it is not possible to derive the correct Hessian structure
-for CONOPT from the Jacobian structure provided by the Ipopt callbacks. There is a method added to the `TNLP` class,
-`get_nonlinear_terms` that can be implemented to inform CONOPT of the terms in the Jacobian that are nonlinear.
+- Remove references to `IpIpoptCalculatedQuantities` in callbacks. The `IpIpoptCalculatedQuantities` object is not
+  populated by the Ipopt-to-CONOPT bridge. This is mainly because many of the calculated quantities are related to the
+  Ipopt algorithm. As such, these are not relevant for CONOPT. It is necessary to remove references to
+  `IpIpoptCalculatedQuantities` in the `finalize_solution` and `intermediate_callback` callbacks. In these callbacks
+  `IpIpoptCalculatedQuantities` is passed as a null pointer.
+
+- Provide the nonlinear Jacobian entries using the `get_nonlinear_terms` method. There is not a direct mapping between
+  the Jacobian structure of Ipopt and CONOPT. This is because CONOPT doesn't consider linear terms in the Jacobian
+  evaluations. As such, it is not possible to derive the correct Hessian structure for CONOPT from the Jacobian
+  structure provided by the Ipopt callbacks. A method has been added to the `TNLP` class, `get_nonlinear_terms` that can
+  be implemented to inform CONOPT of the terms in the Jacobian that are nonlinear.
 
 ### CMake Example
 
