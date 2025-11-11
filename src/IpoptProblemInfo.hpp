@@ -123,12 +123,14 @@ struct IpoptProblemInfo {
 
    /*  === Constructor === */
    IpoptProblemInfo()
-       : n(0), m(0), nnz_jac_g(0), nnz_h_lag(0), index_style(C_STYLE), m_split(0),
-         objective_row_index(-1), nnz_jac_g_split(0), nnz_jac_g_split_nl(0), num_nonlin_vars(0), init_x_req(true),
-         init_z_req(false), init_lambda_req(false), has_variable_linearity(false),
-         has_constraint_linearity(false), has_nonlinear_vars(false), nonlinear_terms_collected(false),
-         n_nl_terms(0), obj_scaling(1.0), use_x_scaling(false), use_g_scaling(false),
-         upper_bound_inf(0.0) /* Must be set from OptionsList */ {}
+       : n(0), m(0), nnz_jac_g(0), nnz_h_lag(0), index_style(C_STYLE),
+         num_nonlin_vars(0), m_split(0), objective_row_index(-1),
+         nonlinear_terms_collected(false), n_nl_terms(0),
+         nnz_jac_g_split(0), nnz_jac_g_split_nl(0),
+         init_x_req(true), init_z_req(false), init_lambda_req(false),
+         has_variable_linearity(false), has_constraint_linearity(false),
+         has_nonlinear_vars(false), upper_bound_inf(0.0) /* Must be set from OptionsList */,
+         obj_scaling(1.0), use_x_scaling(false), use_g_scaling(false) {}
 
    /*  === Utility Methods === */
 
@@ -458,8 +460,9 @@ struct IpoptProblemInfo {
     * @brief Check if all required information is available
     */
    bool is_complete() const {
-      return (n > 0 && m >= 0 && x_l.size() == n && x_u.size() == n && g_l.size() == m &&
-            g_u.size() == m && jac_g_iRow.size() == nnz_jac_g && jac_g_jCol.size() == nnz_jac_g);
+      return (n > 0 && m >= 0 && static_cast<Index>(x_l.size()) == n && static_cast<Index>(x_u.size()) == n &&
+            static_cast<Index>(g_l.size()) == m && static_cast<Index>(g_u.size()) == m &&
+            static_cast<Index>(jac_g_iRow.size()) == nnz_jac_g && static_cast<Index>(jac_g_jCol.size()) == nnz_jac_g);
    }
 
    /**

@@ -721,7 +721,9 @@ public:
       Number*                    g,
       Number*                    lambda
    ) const
-   {}
+   {
+      return false;
+   }
 
    /** Get primal and dual infeasibility of the current iterate.
     *
@@ -770,7 +772,9 @@ public:
       Number*                    nlp_constraint_violation,
       Number*                    compl_g
    ) const
-   {}
+   {
+      return false;
+   }
 
 private:
    /**@name Default Compiler Generated Methods

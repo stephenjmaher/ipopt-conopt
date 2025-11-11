@@ -1027,7 +1027,6 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double* G, double JAC[], int RO
     */
    bool is_objective = (ROWNO == problem_info->objective_row_index); /*  CONOPT uses 0-based */
    Ipopt::Index conopt_constraint_idx = -1;
-   Ipopt::Index ipopt_constraint_idx = -1;
    if (!is_objective) {
       conopt_constraint_idx = ROWNO; /*  CONOPT always uses 0-based indexing */
       if (conopt_constraint_idx < 0 || conopt_constraint_idx >= problem_info->m_split) {
@@ -1037,7 +1036,7 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double* G, double JAC[], int RO
          return 1; /*  Critical error */
       }
       /*  Map CONOPT constraint index to Ipopt constraint index using the mapping */
-      ipopt_constraint_idx = problem_info->original_constraint_map[conopt_constraint_idx];
+      /*  Note: original_constraint_map[conopt_constraint_idx] maps to the original Ipopt constraint */
    }
 
    try {
@@ -1133,8 +1132,6 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
       }
       return 1; /*  Critical error */
    }
-
-   FDEvalCache* cache = context->fdeval_cache_;
 
    /*  For robustness with CONOPT's ROWLIST, cache all rows (constraints and objective) */
    const bool has_constraints = (problem_info->m > 0);
@@ -1598,8 +1595,6 @@ int COI_CALLCONV Conopt_ErrMsg(int ROWNO, int COLNO, int POSNO, const char* MSG,
  */
 int COI_CALLCONV Conopt_Progress(
       int LEN_INT, const int INT[], int LEN_RL, const double RL[], const double X[], void* USRMEM) {
-   int result = 0; /*  Default to continue (0 = continue, 1 = stop) */
-
    IpoptConoptContext* context = GetContext(USRMEM);
    Ipopt::TNLP* tnlp = GetTNLP(USRMEM);
    Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
@@ -1627,7 +1622,7 @@ int COI_CALLCONV Conopt_Progress(
    /*  Extract CONOPT progress information */
    const int iter = INT[0];   /*  ITER: Number of the iteration */
    const int phase = INT[1];  /*  PHASE: Phase of optimization (0-5) */
-   const int numinf = INT[2]; /*  NUMINF: Number of infeasible constraints */
+   /*  INT[2] = NUMINF: Number of infeasible constraints (not used) */
    /*  INT[3] = NUMNOP: Number of non-optimal variables (not used) */
    /*  INT[4] = NSUPER: Number of super-basic variables (not used) */
 
