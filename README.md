@@ -86,11 +86,16 @@ heading includes that are not necessary when using CONOPT.
   `IpIpoptCalculatedQuantities` in the `finalize_solution` and `intermediate_callback` callbacks. In these callbacks
   `IpIpoptCalculatedQuantities` is passed as a null pointer.
 
-- Provide the nonlinear Jacobian entries using the `get_nonlinear_terms` method. There is not a direct mapping between
-  the Jacobian structure of Ipopt and CONOPT. This is because CONOPT doesn't consider linear terms in the Jacobian
-  evaluations. As such, it is not possible to derive the correct Hessian structure for CONOPT from the Jacobian
-  structure provided by the Ipopt callbacks. A method has been added to the `TNLP` class, `get_nonlinear_terms` that can
-  be implemented to inform CONOPT of the terms in the Jacobian that are nonlinear.
+- Provide the nonlinear Jacobian entries using the `get_nonlinear_terms` method. This is optional, and only needed if
+  CONOPT should use second order information. While the nonlinear terms in the Jacobian do not need to be specified for
+  the function and derivative evaluations, they are needed when specifying the structure of the Hessian of the
+  Lagrangian. When the user provides the structure of the Hessian in `eval_h`, without specifying the nonlinear terms,
+  there will be a conflict in CONOPT w.r.t to the linear terms in the Jacobian. In the bridge, the default is to assume
+  that all terms are nonlinear in the Jacobian. This is needed because CONOPT doesn't evaluate linear terms, but Ipopt
+  does. However, assuming all terms are nonlinear means that the structure of the Hessian doesn't match with the
+  structure of the Jacobian. As such, a method has been added to the `TNLP` class, `get_nonlinear_terms` that can be
+  implemented to inform CONOPT of the terms in the Jacobian that are nonlinear. Then there is no conflict between the
+  Jacobian and the Hessian, and CONOPT can use second order information.
 
 ### CMake Example
 
