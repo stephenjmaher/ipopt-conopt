@@ -832,6 +832,12 @@ class IpoptApplication : public ReferencedObject {
       return true;
    }
 
+   /** sets the CONOPT license */
+   int SetConoptLicense(int license_int_1, int license_int_2, int license_int_3, const char* license_string)
+   {
+      return COIDEF_License(cntvect_, license_int_1, license_int_2, license_int_3, license_string);
+   }
+
  private:
    // Helper to trim whitespace from start and end
    std::string trim(const std::string& str) {
