@@ -653,51 +653,51 @@ static int EvaluateConstraintJacobianRow(IpoptConoptContext* context,
     * Check if jacobian is cached first
     */
    if (IsJacobianCached(context)) {
-      /*  Use cached jacobian values */
-      for (Ipopt::Index k = 0; k < problem_info->nnz_jac_g_split && result == 0; ++k) {
-         /*  Get the split Jacobian row and column for this entry */
-         Ipopt::Index split_row = problem_info->get_split_jacobian_row(k);
+      /*  Use the precomputed CSR-style row index to visit only the entries that belong to
+       *  this row, instead of scanning the entire split Jacobian for matches.
+       */
+      const Ipopt::Index row_start = problem_info->jac_row_start[conopt_constraint_idx];
+      const Ipopt::Index row_end = problem_info->jac_row_start[conopt_constraint_idx + 1];
+      for (Ipopt::Index idx = row_start; idx < row_end && result == 0; ++idx) {
+         Ipopt::Index k = problem_info->jac_row_entries[idx];
          Ipopt::Index split_col = problem_info->get_split_jacobian_col(k);
 
-         if (split_row == conopt_constraint_idx) {
-            /*  This entry belongs to the requested constraint row */
-            if (split_col >= 0 && split_col < problem_info->n) {
-               /*  Get the value from the cached jacobian if it's not an objective entry */
-               if (problem_info->jacobian_split_map[k] != -1) {
-                  Ipopt::Index orig_k = problem_info->jacobian_split_map[k];
-                  double cached_value;
-                  if (GetCachedJacobianValue(context, orig_k, cached_value)) {
-                     JAC[split_col] = cached_value;
-                  }
-                  else {
-                     /*  This is an error - jacobian should be fully cached */
-                     if (jnlst) {
-                        jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                              "CONOPT Bridge Error: No cached value for jacobian entry %d. "
-                              "Jacobian was not properly cached in FDEvalIni.\n",
-                              orig_k);
-                     }
-                     result = 1; /*  There is an issue with the interface */
-                  }
+         if (split_col >= 0 && split_col < problem_info->n) {
+            /*  Get the value from the cached jacobian if it's not an objective entry */
+            if (problem_info->jacobian_split_map[k] != -1) {
+               Ipopt::Index orig_k = problem_info->jacobian_split_map[k];
+               double cached_value;
+               if (GetCachedJacobianValue(context, orig_k, cached_value)) {
+                  JAC[split_col] = cached_value;
                }
                else {
+                  /*  This is an error - jacobian should be fully cached */
                   if (jnlst) {
                      jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                           "CONOPT Bridge Error: The constraint mapping is not "
-                           "consistent.\n");
+                           "CONOPT Bridge Error: No cached value for jacobian entry %d. "
+                           "Jacobian was not properly cached in FDEvalIni.\n",
+                           orig_k);
                   }
-                  result = 1; /*  there is an issue with the interface. */
+                  result = 1; /*  There is an issue with the interface */
                }
             }
             else {
-               /*  Should not happen if structure is correct */
-               if (jnlst)
+               if (jnlst) {
                   jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                        "CONOPT Bridge Error: Invalid column index %d from split Jacobian "
-                        "structure.\n",
-                        split_col);
-               result = 1; /*  there is an issue with the interface */
+                        "CONOPT Bridge Error: The constraint mapping is not "
+                        "consistent.\n");
+               }
+               result = 1; /*  there is an issue with the interface. */
             }
+         }
+         else {
+            /*  Should not happen if structure is correct */
+            if (jnlst)
+               jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                     "CONOPT Bridge Error: Invalid column index %d from split Jacobian "
+                     "structure.\n",
+                     split_col);
+            result = 1; /*  there is an issue with the interface */
          }
       }
    }

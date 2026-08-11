@@ -94,6 +94,11 @@ struct IpoptProblemInfo {
    std::vector<Index> jacobian_split_rows; /*  Direct mapping to split constraint rows (length
                                               nnz_jac_g_split) */
 
+   /*  === Jacobian Row Index (CSR-style, for O(1) row lookup during FDEval) === */
+   std::vector<Index> jac_row_start;   /*  Row offsets into jac_row_entries (length m_split + 1) */
+   std::vector<Index> jac_row_entries; /*  Split Jacobian indices grouped by row (length
+                                          nnz_jac_g_split) */
+
    /*  === Hessian Structure === */
    std::vector<Index> hess_iRow;    /*  Hessian row indices (length nnz_h_lag) */
    std::vector<Index> hess_jCol;    /*  Hessian column indices (length nnz_h_lag) */
@@ -370,6 +375,31 @@ struct IpoptProblemInfo {
          }
          split_k++;
       }
+
+      build_jac_row_index();
+   }
+
+   /**
+    * @brief Build a CSR-style index (jac_row_start / jac_row_entries) grouping split Jacobian
+    * entries by row. Without this, looking up the entries for a single row during FDEval would
+    * require scanning the entire split Jacobian (all rows), which is O(nnz_jac_g_split) per row
+    * per FDEval call instead of O(nnz of that row).
+    */
+   void build_jac_row_index() {
+      jac_row_start.assign(m_split + 1, 0);
+      for (Index k = 0; k < nnz_jac_g_split; ++k) {
+         jac_row_start[jacobian_split_rows[k] + 1]++;
+      }
+      for (Index r = 0; r < m_split; ++r) {
+         jac_row_start[r + 1] += jac_row_start[r];
+      }
+
+      jac_row_entries.resize(nnz_jac_g_split);
+      std::vector<Index> fill_pos(jac_row_start.begin(), jac_row_start.end() - 1);
+      for (Index k = 0; k < nnz_jac_g_split; ++k) {
+         Index row = jacobian_split_rows[k];
+         jac_row_entries[fill_pos[row]++] = k;
+      }
    }
 
    /*  === Helper methods for generating split data on-the-fly === */
@@ -508,6 +538,8 @@ struct IpoptProblemInfo {
       split_constraint_type.clear();
       jacobian_split_map.clear();
       jacobian_split_rows.clear();
+      jac_row_start.clear();
+      jac_row_entries.clear();
 
       /*  Clear scaling parameters */
       obj_scaling = 1.0;
