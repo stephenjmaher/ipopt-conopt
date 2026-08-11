@@ -14,7 +14,8 @@
 #include <cassert>
 #include <vector>
 #include <string>
-#include <algorithm> /*  For std::max */
+#include <algorithm> /*  For std::max, std::copy, std::transform */
+#include <cmath>     /*  For std::fabs */
 #include <cstring>
 #include <cstddef>
 #include <memory>
@@ -422,8 +423,8 @@ bool PopulateSolveStatistics(IpoptConoptContext* context) {
 
       /*  Set basic solve information */
       stats->SetIterationCount(status_sol->conopt_iter_);
-      stats->SetFinalObjective(status_sol->conopt_objval_);
-      stats->SetFinalScaledObjective(status_sol->conopt_objval_); /*  Assume no scaling for now */
+      stats->SetFinalObjective(status_sol->conopt_objval_);              /*  Original units */
+      stats->SetFinalScaledObjective(status_sol->conopt_objval_scaled_); /*  As sent to CONOPT */
 
       /*  Translate CONOPT status to Ipopt solve status */
       Ipopt::ApplicationReturnStatus solve_status =
@@ -505,6 +506,24 @@ bool PopulateSolveStatistics(IpoptConoptContext* context) {
 /*  --- Helper Functions for FDEval --- */
 
 /**
+ * @brief Get the objective scaling magnitude to apply to the objective value, gradient,
+ * and Hessian contribution sent to CONOPT.
+ *
+ * Direction (the sign of obj_scaling) is handled separately via COIDEF_OptDir in
+ * SetupConoptProblem; this returns only the magnitude, matching how TNLP::get_scaling_parameters()
+ * documents obj_scaling: "if this number is chosen to be 10, then Ipopt solves internally an
+ * optimization problem that has 10 times the value of the original objective function." Falls
+ * back to 1.0 (no scaling) if obj_scaling is exactly zero, since scaling by zero would zero out
+ * the objective entirely, which is never the intent.
+ */
+static double GetObjectiveScaleMagnitude(Ipopt::IpoptProblemInfo* problem_info) {
+   if (!problem_info || problem_info->obj_scaling == 0.0) {
+      return 1.0;
+   }
+   return std::fabs(problem_info->obj_scaling);
+}
+
+/**
  * @brief Evaluate function value (objective or constraint) from cache
  * @param context The context containing the cache
  * @param problem_info Problem information
@@ -526,7 +545,7 @@ static int EvaluateFunctionValue(IpoptConoptContext* context, Ipopt::IpoptProble
       double cached_obj_value;
       value_found = GetCachedObjectiveValue(context, cached_obj_value);
       if (value_found) {
-         *G = cached_obj_value;
+         *G = cached_obj_value * GetObjectiveScaleMagnitude(problem_info);
          if (jnlst) {
             jnlst->Printf(
                   Ipopt::J_DETAILED, Ipopt::J_NLP, "CONOPT Bridge: Using cached objective value.\n");
@@ -584,25 +603,20 @@ static int EvaluateObjectiveGradient(IpoptConoptContext* context,
 
    /*  Check for cached objective gradient first */
    if (IsObjectiveGradientCached(context)) {
-      /*  Use cached objective gradient */
-      for (Ipopt::Index j = 0; j < problem_info->n && result == 0; ++j) {
-         double cached_value;
-         if (GetCachedObjectiveGradientValue(context, j, cached_value)) {
-            JAC[j] = cached_value;
-         }
-         else {
-            /*  This is an error - gradient should be fully cached */
-            if (jnlst) {
-               jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                     "CONOPT Bridge Error: No cached value for objective gradient at "
-                     "variable %d. "
-                     "Objective gradient was not properly cached in FDEvalIni.\n",
-                     j);
-            }
-            result = 1; /*  There is an issue with the interface */
-         }
+      /*  Gradient validity is confirmed above for the whole vector, so copy it directly
+       *  instead of re-checking bounds/validity for every element.
+       */
+      const std::vector<double>& gradient = context->fdeval_cache_->objective_gradient_;
+      const double scale = GetObjectiveScaleMagnitude(problem_info);
+      if (scale == 1.0) {
+         std::copy(gradient.begin(), gradient.end(), JAC);
       }
-      if (result == 0 && jnlst) {
+      else {
+         std::transform(
+               gradient.begin(), gradient.end(), JAC, [scale](double g) { return g * scale; });
+      }
+
+      if (jnlst) {
          jnlst->Printf(
                Ipopt::J_DETAILED, Ipopt::J_NLP, "CONOPT Bridge: Using cached objective gradient.\n");
       }
@@ -1276,6 +1290,12 @@ int COI_CALLCONV Conopt_2DLagrVal(const double X[], const double U[], const int 
       obj_factor = U[problem_info->objective_row_index];
    }
 
+   /*  Scale the objective's contribution to the Hessian by the same magnitude applied to
+    *  the objective value/gradient in FDEval, so the second-order model CONOPT builds
+    *  stays consistent with the (possibly scaled) first-order information it already has.
+    */
+   obj_factor *= GetObjectiveScaleMagnitude(problem_info);
+
    /*  Aggregate split-row multipliers into original constraint multipliers for TNLP */
    std::vector<Ipopt::Number> lambda(problem_info->m, 0.0);
    for (Ipopt::Index split_row = 0; split_row < problem_info->m_split; ++split_row) {
@@ -1361,6 +1381,7 @@ int COI_CALLCONV Conopt_Status(int MODSTA, int SOLSTA, int ITER, double OBJVAL, 
 
    IpoptConoptContext* context = GetContext(USRMEM);
    Ipopt::Journalist* jnlst = GetJournalist(USRMEM);
+   Ipopt::IpoptProblemInfo* problem_info = GetProblemInfo(USRMEM);
 
    if (!context || !context->status_solution_) {
       if (jnlst) {
@@ -1370,11 +1391,19 @@ int COI_CALLCONV Conopt_Status(int MODSTA, int SOLSTA, int ITER, double OBJVAL, 
       return 1; /*  Critical error */
    }
 
+   /*  OBJVAL is reported by CONOPT in the same (possibly scaled) units that FDEval handed
+    *  it - see GetObjectiveScaleMagnitude. Divide back out so conopt_objval_ matches what
+    *  the TNLP's own eval_f would return, since that is what finalize_solution's obj_value
+    *  parameter is documented to be. The raw, still-scaled value is kept separately for
+    *  SolveStatistics::FinalScaledObjective. */
+   const double scale = GetObjectiveScaleMagnitude(problem_info);
+
    /*  Cache the status information for later use in finalize_solution */
    context->status_solution_->conopt_modsta_ = MODSTA;
    context->status_solution_->conopt_solsta_ = SOLSTA;
    context->status_solution_->conopt_iter_ = ITER;
-   context->status_solution_->conopt_objval_ = OBJVAL;
+   context->status_solution_->conopt_objval_ = OBJVAL / scale;
+   context->status_solution_->conopt_objval_scaled_ = OBJVAL;
    context->status_solution_->status_cached_ = true;
 
    if (jnlst) {

@@ -813,7 +813,21 @@ class IpoptApplication : public ReferencedObject {
 
       assert(problem_info_.objective_row_index >= 0);
       COI_ERROR += COIDEF_ObjCon(cntvect_, problem_info_.objective_row_index);
-      COI_ERROR += COIDEF_OptDir(cntvect_, -1);
+
+      /*  Ipopt's TNLP has no separate min/max flag: per TNLP::get_scaling_parameters()
+       *  (IpTNLP.hpp), a negative obj_scaling is the documented way for a TNLP to say
+       *  "maximize the value eval_f returns" instead of minimizing it. CONOPT's
+       *  COIDEF_OptDir takes the same raw objective value either way (+1 = maximize,
+       *  -1 = minimize), so the sign of obj_scaling maps directly - no need to negate
+       *  the objective value/gradient anywhere else in the bridge. */
+      const int conopt_opt_dir = (problem_info_.obj_scaling < 0.0) ? 1 : -1;
+      COI_ERROR += COIDEF_OptDir(cntvect_, conopt_opt_dir);
+
+      if (!IsNull(jnlst_)) {
+         jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
+               "CONOPT Bridge: Objective direction set to %s (obj_scaling=%g).\n",
+               conopt_opt_dir > 0 ? "maximize" : "minimize", problem_info_.obj_scaling);
+      }
 
       /*  Set output control */
       COI_ERROR += COIDEF_StdOut(cntvect_, 1);

@@ -29,7 +29,9 @@ struct ConoptStatusSolution {
    int conopt_modsta_;    /*  CONOPT model status */
    int conopt_solsta_;    /*  CONOPT solver status */
    int conopt_iter_;      /*  CONOPT iteration count */
-   double conopt_objval_; /*  CONOPT objective value */
+   double conopt_objval_; /*  Objective value in the TNLP's original (unscaled) units */
+   double conopt_objval_scaled_; /*  Raw OBJVAL as reported by CONOPT, i.e. scaled by the
+                                    obj_scaling magnitude applied in FDEval */
 
    /*  Solution data */
    bool solution_cached_;            /*  Whether solution has been cached */
@@ -47,7 +49,7 @@ struct ConoptStatusSolution {
     */
    ConoptStatusSolution()
        : status_cached_(false), conopt_modsta_(0), conopt_solsta_(0), conopt_iter_(0),
-         conopt_objval_(0.0), solution_cached_(false) {}
+         conopt_objval_(0.0), conopt_objval_scaled_(0.0), solution_cached_(false) {}
 
    /**
     * @brief Reset all cached data
@@ -59,6 +61,7 @@ struct ConoptStatusSolution {
       conopt_solsta_ = 0;
       conopt_iter_ = 0;
       conopt_objval_ = 0.0;
+      conopt_objval_scaled_ = 0.0;
       x_solution_.clear();
       x_marginals_.clear();
       x_basis_.clear();
