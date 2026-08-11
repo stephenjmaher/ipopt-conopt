@@ -487,8 +487,7 @@ class IpoptApplication : public ReferencedObject {
       context_.ip_data_ = GetRawPtr(ip_data_);
 
       /*  --- Initialize FDEval cache --- */
-      context_.fdeval_cache_ =
-            new FDEvalCache(problem_info_.m_split, problem_info_.nnz_jac_g, problem_info_.n);
+      context_.fdeval_cache_ = new FDEvalCache(problem_info_.m_split, problem_info_.nnz_jac_g);
 
       /*  --- Create status solution structure --- */
       context_.status_solution_ = new ConoptStatusSolution();
