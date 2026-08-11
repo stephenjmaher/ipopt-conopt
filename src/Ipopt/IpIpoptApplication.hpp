@@ -819,7 +819,7 @@ class IpoptApplication : public ReferencedObject {
        *  COIDEF_OptDir takes the same raw objective value either way (+1 = maximize,
        *  -1 = minimize), so the sign of obj_scaling maps directly - no need to negate
        *  the objective value/gradient anywhere else in the bridge. */
-      const int conopt_opt_dir = (problem_info_.obj_scaling < 0.0) ? 1 : -1;
+      const int conopt_opt_dir = (problem_info_.obj_scaling < 0.0) ? -1 : 1;
       COI_ERROR += COIDEF_OptDir(cntvect_, conopt_opt_dir);
 
       if (!IsNull(jnlst_)) {
