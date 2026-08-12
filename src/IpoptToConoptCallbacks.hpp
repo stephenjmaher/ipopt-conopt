@@ -6,7 +6,7 @@
 #define IPOPT_TO_CONOPT_CALLBACKS_HPP
 
 #include "conopt.h" /*  For COI_CALLCONV and C-API types */
-#include <algorithm>
+#include <cassert>
 #include <vector>
 #include <cstddef>
 
@@ -79,23 +79,26 @@ struct ConoptStatusSolution {
  * This stores the results of constraint evaluations and jacobian with constant lookup time.
  */
 struct FDEvalCache {
-   std::vector<double> constraint_values_; /*  Cached constraint values (size = numcons) */
+   std::vector<double> constraint_values_; /*  Cached constraint values, indexed by ORIGINAL
+                                              constraint index (size = m, not m_split) - the
+                                              split-row translation happens on demand in
+                                              FDEval via original_constraint_map */
    std::vector<double> jacobian_values_;   /*  Cached jacobian values (size = nnz_jac_g) */
-   std::vector<bool> jacobian_valid_;      /*  Validity flags for jacobian entries */
    bool jacobian_cached_;                  /*  Whether jacobian has been cached */
-   int num_constraints_;                   /*  Number of constraints (for bounds checking) */
+   int num_constraints_;                   /*  Number of original constraints (for bounds
+                                               checking; equal to problem_info->m) */
    int nnz_jacobian_;                       /*  Number of non-zero jacobian entries */
 
    /**
     * @brief Constructor for FDEvalCache
-    * @param num_constraints Number of constraints to allocate space for
+    * @param num_constraints Number of original constraints (problem_info->m) to allocate
+    * space for
     * @param nnz_jacobian Number of non-zero jacobian entries to allocate space for
     */
    FDEvalCache(int num_constraints, int nnz_jacobian)
        : jacobian_cached_(false), num_constraints_(num_constraints), nnz_jacobian_(nnz_jacobian) {
       constraint_values_.resize(num_constraints, 0.0);
       jacobian_values_.resize(nnz_jacobian, 0.0);
-      jacobian_valid_.resize(nnz_jacobian, false);
    }
 
    /**
@@ -105,26 +108,21 @@ struct FDEvalCache {
    void cacheJacobian(const std::vector<double>& jacobian_values) {
       if (jacobian_values.size() == static_cast<size_t>(nnz_jacobian_)) {
          jacobian_values_ = jacobian_values;
-         std::fill(jacobian_valid_.begin(), jacobian_valid_.end(), true);
          jacobian_cached_ = true;
       }
    }
 
    /**
-    * @brief Get cached jacobian value for a given index
+    * @brief Get cached jacobian value for a given index. Trusts that the whole jacobian was
+    * populated correctly by cacheJacobian() and that jacobian_idx is in range - callers
+    * should check isJacobianCached() first. Bounds are only checked via assert(), which
+    * compiles away entirely in release (NDEBUG) builds, so this is just an array read.
     * @param jacobian_idx The jacobian index to get the value for
-    * @param value Output parameter for the cached value
-    * @return true if the value is valid and cached, false otherwise
+    * @return the cached value
     */
-   bool getCachedJacobianValue(int jacobian_idx, double& value) const {
-      if (jacobian_idx < 0 || jacobian_idx >= nnz_jacobian_) {
-         return false;
-      }
-      if (jacobian_valid_[jacobian_idx]) {
-         value = jacobian_values_[jacobian_idx];
-         return true;
-      }
-      return false;
+   double getCachedJacobianValue(int jacobian_idx) const {
+      assert(jacobian_idx >= 0 && jacobian_idx < nnz_jacobian_);
+      return jacobian_values_[jacobian_idx];
    }
 
    /**
@@ -158,22 +156,38 @@ typedef struct {
 void CleanupIpoptConoptContext(IpoptConoptContext* context);
 
 /**
- * @brief Get cached constraint value for a given row.
+ * @brief Get cached constraint value for a given ORIGINAL constraint index (not a CONOPT
+ * split-row index - see FDEvalCache::constraint_values_).
+ *
+ * Trusts that context/row_idx are valid (checked only via assert(), which compiles away in
+ * release/NDEBUG builds) rather than branching on them at runtime, so this is just an array
+ * read. Defined here (not in the .cpp) and marked inline so the body is visible at every
+ * call site for the compiler to actually fold away, rather than merely hinting at it.
  * @param context The context containing the cache
- * @param row_idx The row index to get the value for
- * @param value Output parameter for the cached value
- * @return true if the value is valid and cached, false otherwise
+ * @param row_idx The original constraint index to get the value for
+ * @return the cached value
  */
-bool GetCachedConstraintValue(IpoptConoptContext* context, int row_idx, double& value);
+inline double GetCachedConstraintValue(IpoptConoptContext* context, int row_idx) {
+   assert(context && context->fdeval_cache_);
+   FDEvalCache* cache = context->fdeval_cache_;
+   assert(row_idx >= 0 && row_idx < cache->num_constraints_);
+   return cache->constraint_values_[row_idx];
+}
 
 /**
  * @brief Get cached jacobian value for a given index.
+ *
+ * Trusts that context/jacobian_idx are valid (checked only via assert(), which compiles
+ * away in release/NDEBUG builds) rather than branching on them at runtime, so this is just
+ * an array read. See GetCachedConstraintValue above for why this is defined inline here.
  * @param context The context containing the cache
  * @param jacobian_idx The jacobian index to get the value for
- * @param value Output parameter for the cached value
- * @return true if the value is valid and cached, false otherwise
+ * @return the cached value
  */
-bool GetCachedJacobianValue(IpoptConoptContext* context, int jacobian_idx, double& value);
+inline double GetCachedJacobianValue(IpoptConoptContext* context, int jacobian_idx) {
+   assert(context && context->fdeval_cache_);
+   return context->fdeval_cache_->getCachedJacobianValue(jacobian_idx);
+}
 
 /**
  * @brief Check if jacobian has been cached.

@@ -157,31 +157,6 @@ void CleanupIpoptConoptContext(IpoptConoptContext* context) {
    }
 }
 
-/*  Helper function to get cached constraint value */
-bool GetCachedConstraintValue(IpoptConoptContext* context, int row_idx, double& value) {
-   if (!context || !context->fdeval_cache_) {
-      return false;
-   }
-
-   FDEvalCache* cache = context->fdeval_cache_;
-   if (row_idx < 0 || row_idx >= cache->num_constraints_) {
-      return false;
-   }
-
-   value = cache->constraint_values_[row_idx];
-   return true;
-}
-
-/*  Helper function to get cached jacobian value */
-bool GetCachedJacobianValue(IpoptConoptContext* context, int jacobian_idx, double& value) {
-   if (!context || !context->fdeval_cache_) {
-      return false;
-   }
-
-   FDEvalCache* cache = context->fdeval_cache_;
-   return cache->getCachedJacobianValue(jacobian_idx, value);
-}
-
 /*  Helper function to check if jacobian is cached */
 bool IsJacobianCached(IpoptConoptContext* context) {
    if (!context || !context->fdeval_cache_) {
@@ -490,33 +465,27 @@ static double GetObjectiveScaleMagnitude(Ipopt::IpoptProblemInfo* problem_info) 
 
 /**
  * @brief Evaluate a constraint's function value from FDEvalIni's cache
+ *
+ * The cache is keyed by ORIGINAL constraint index (see EvaluateAndCacheConstraints), so the
+ * split-row-to-original translation happens here, on demand, for just this one row.
+ *
  * @param context The context containing the cache
+ * @param problem_info Problem information (for original_constraint_map)
  * @param jnlst Journalist for logging
- * @param conopt_constraint_idx CONOPT constraint index
+ * @param conopt_constraint_idx CONOPT (split-row) constraint index
  * @param ROWNO Row number for error messages
  * @param G Output parameter for function value
- * @return 0 on success, 1 on error
  */
-static int EvaluateConstraintValue(IpoptConoptContext* context, Ipopt::Journalist* jnlst,
+static void EvaluateConstraintValue(IpoptConoptContext* context,
+      Ipopt::IpoptProblemInfo* problem_info, Ipopt::Journalist* jnlst,
       Ipopt::Index conopt_constraint_idx, int ROWNO, double* G) {
-   double cached_constraint_value;
-   if (GetCachedConstraintValue(context, conopt_constraint_idx, cached_constraint_value)) {
-      *G = cached_constraint_value;
-      if (jnlst) {
-         jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
-               "CONOPT Bridge: Using cached constraint value for row %d.\n", ROWNO);
-      }
-      return 0;
-   }
+   Ipopt::Index orig_idx = problem_info->original_constraint_map[conopt_constraint_idx];
+   *G = GetCachedConstraintValue(context, orig_idx);
 
-   /*  This is an error - FDEval should only be called for rows that were in ROWLIST */
    if (jnlst) {
-      jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-            "CONOPT Bridge Error: No cached value for constraint row %d. "
-            "This row was not in the ROWLIST from FDEvalIni.\n",
-            ROWNO);
+      jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
+            "CONOPT Bridge: Using cached constraint value for row %d.\n", ROWNO);
    }
-   return 1; /*  there is an error in the interface. */
 }
 
 /**
@@ -534,9 +503,8 @@ static int EvaluateConstraintValue(IpoptConoptContext* context, Ipopt::Journalis
  * @param X Point of evaluation
  * @param ERRCNT Error counter (incremented on a recoverable evaluation failure)
  * @param G Output parameter for the objective value
- * @return 0 always; evaluation failures are reported via ERRCNT, not the return code
  */
-static int EvaluateObjectiveValue(IpoptConoptContext* context, Ipopt::TNLP* tnlp,
+static void EvaluateObjectiveValue(IpoptConoptContext* context, Ipopt::TNLP* tnlp,
       Ipopt::IpoptProblemInfo* problem_info, Ipopt::Journalist* jnlst, const double X[],
       int* ERRCNT, double* G) {
    Ipopt::Number obj_value;
@@ -545,7 +513,6 @@ static int EvaluateObjectiveValue(IpoptConoptContext* context, Ipopt::TNLP* tnlp
          jnlst->Printf(Ipopt::J_WARNING, Ipopt::J_NLP, "CONOPT Bridge: eval_f failed in FDEval.\n");
       }
       (*ERRCNT)++;
-      return 0;
    }
 
    if (context->stats_) {
@@ -553,12 +520,11 @@ static int EvaluateObjectiveValue(IpoptConoptContext* context, Ipopt::TNLP* tnlp
    }
 
    *G = obj_value * GetObjectiveScaleMagnitude(problem_info);
-   return 0;
 }
 
 /**
- * @brief Evaluate the objective gradient directly from the TNLP (see EvaluateObjectiveValue
- * for why this is not cached ahead of time in FDEvalIni).
+ * @brief Evaluate the objective gradient directly from the TNLP.
+ *
  * @param context The context (for evaluation-count stats)
  * @param tnlp TNLP object for evaluation
  * @param problem_info Problem information
@@ -566,9 +532,8 @@ static int EvaluateObjectiveValue(IpoptConoptContext* context, Ipopt::TNLP* tnlp
  * @param X Point of evaluation
  * @param ERRCNT Error counter (incremented on a recoverable evaluation failure)
  * @param JAC Output array for the objective gradient
- * @return 0 always; evaluation failures are reported via ERRCNT, not the return code
  */
-static int EvaluateObjectiveGradient(IpoptConoptContext* context, Ipopt::TNLP* tnlp,
+static void EvaluateObjectiveGradient(IpoptConoptContext* context, Ipopt::TNLP* tnlp,
       Ipopt::IpoptProblemInfo* problem_info, Ipopt::Journalist* jnlst, const double X[],
       int* ERRCNT, double JAC[]) {
    std::vector<Ipopt::Number> gradient(problem_info->n);
@@ -578,7 +543,6 @@ static int EvaluateObjectiveGradient(IpoptConoptContext* context, Ipopt::TNLP* t
                Ipopt::J_WARNING, Ipopt::J_NLP, "CONOPT Bridge: eval_grad_f failed in FDEval.\n");
       }
       (*ERRCNT)++;
-      return 0;
    }
 
    if (context->stats_) {
@@ -592,11 +556,11 @@ static int EvaluateObjectiveGradient(IpoptConoptContext* context, Ipopt::TNLP* t
    else {
       std::transform(gradient.begin(), gradient.end(), JAC, [scale](double g) { return g * scale; });
    }
-   return 0;
 }
 
 /**
  * @brief Evaluate constraint Jacobian row from cache
+ *
  * @param context The context containing the cache
  * @param problem_info Problem information
  * @param jnlst Journalist for logging
@@ -627,20 +591,7 @@ static int EvaluateConstraintJacobianRow(IpoptConoptContext* context,
             /*  Get the value from the cached jacobian if it's not an objective entry */
             if (problem_info->jacobian_split_map[k] != -1) {
                Ipopt::Index orig_k = problem_info->jacobian_split_map[k];
-               double cached_value;
-               if (GetCachedJacobianValue(context, orig_k, cached_value)) {
-                  JAC[split_col] = cached_value;
-               }
-               else {
-                  /*  This is an error - jacobian should be fully cached */
-                  if (jnlst) {
-                     jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                           "CONOPT Bridge Error: No cached value for jacobian entry %d. "
-                           "Jacobian was not properly cached in FDEvalIni.\n",
-                           orig_k);
-                  }
-                  result = 1; /*  There is an issue with the interface */
-               }
+               JAC[split_col] = GetCachedJacobianValue(context, orig_k);
             }
             else {
                if (jnlst) {
@@ -679,6 +630,13 @@ static int EvaluateConstraintJacobianRow(IpoptConoptContext* context,
 
 /**
  * @brief Evaluate and cache constraint function values
+ *
+ * eval_g() writes directly into the cache, keyed by ORIGINAL constraint index (not the
+ * split row index CONOPT uses). Translating a split row to its original constraint - a
+ * single array lookup via original_constraint_map - happens on demand in FDEval
+ * (EvaluateConstraintValue) for whichever row is actually asked for, rather than eagerly
+ * remapping every split row here regardless of whether FDEval will ever ask for it.
+ *
  * @param context The context containing the cache
  * @param tnlp TNLP object for evaluation
  * @param problem_info Problem information
@@ -692,9 +650,9 @@ static bool EvaluateAndCacheConstraints(IpoptConoptContext* context, Ipopt::TNLP
       int* ERRCNT) {
    bool success = true;
 
-   /*  Evaluate all original constraints */
-   std::vector<Ipopt::Number> all_g(problem_info->m);
-   if (!tnlp->eval_g(problem_info->n, X, true, problem_info->m, all_g.data())) {
+   FDEvalCache* cache = context->fdeval_cache_;
+   if (!tnlp->eval_g(
+             problem_info->n, X, true, problem_info->m, cache->constraint_values_.data())) {
       if (jnlst) {
          jnlst->Printf(
                Ipopt::J_WARNING, Ipopt::J_NLP, "CONOPT Bridge: eval_g failed in FDEvalIni.\n");
@@ -705,17 +663,6 @@ static bool EvaluateAndCacheConstraints(IpoptConoptContext* context, Ipopt::TNLP
    else {
       if (context->stats_) {
          context->stats_->IncrementConstraintEvaluations();
-      }
-   }
-
-   if (success) {
-      /*  Cache constraint values for ALL split rows by mapping to original constraint indices */
-      FDEvalCache* cache = context->fdeval_cache_;
-      for (Ipopt::Index split_row = 0; split_row < problem_info->m_split - 1; ++split_row) {
-         Ipopt::Index orig_idx = problem_info->original_constraint_map[split_row];
-         if (orig_idx >= 0 && orig_idx < problem_info->m) {
-            cache->constraint_values_[split_row] = all_g[orig_idx];
-         }
       }
    }
 
@@ -938,18 +885,17 @@ int COI_CALLCONV Conopt_FDEval(const double X[], double* G, double JAC[], int RO
       /*  --- Evaluate Function Value (MODE 1 or 3) --- */
       if (MODE & 1) {
          if (is_objective) {
-            result = EvaluateObjectiveValue(context, tnlp, problem_info, jnlst, X, ERRCNT, G);
+            EvaluateObjectiveValue(context, tnlp, problem_info, jnlst, X, ERRCNT, G);
          }
          else {
-            result = EvaluateConstraintValue(context, jnlst, conopt_constraint_idx, ROWNO, G);
+            EvaluateConstraintValue(context, problem_info, jnlst, conopt_constraint_idx, ROWNO, G);
          }
       }
 
       /*  --- Evaluate Derivatives (MODE 2 or 3) --- */
-      if (result == 0 && (MODE & 2)) {
+      if (MODE & 2) {
          if (is_objective) {
-            result =
-                  EvaluateObjectiveGradient(context, tnlp, problem_info, jnlst, X, ERRCNT, JAC);
+               EvaluateObjectiveGradient(context, tnlp, problem_info, jnlst, X, ERRCNT, JAC);
          }
          else {
             result = EvaluateConstraintJacobianRow(
