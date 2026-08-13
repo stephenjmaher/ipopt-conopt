@@ -135,7 +135,8 @@ struct IpoptProblemInfo {
    bool has_nonlinear_vars;       /*  Whether nonlinear variable count was provided */
 
    /*  === Infinity Thresholds (from options) === */
-   Number upper_bound_inf; /* Values >= this are treated as infinity */
+   Number lower_bound_inf; /* Values <= this are treated as -infinity (nlp_lower_bound_inf) */
+   Number upper_bound_inf; /* Values >= this are treated as infinity (nlp_upper_bound_inf) */
 
    /*  === Scaling Parameters === */
    Number obj_scaling;            /*  Objective function scaling factor */
@@ -150,7 +151,9 @@ struct IpoptProblemInfo {
          m_split(0), objective_row_index(-1), nonlinear_terms_collected(false), n_nl_terms(0),
          nnz_jac_g_split(0), nnz_jac_g_split_nl(0), init_x_req(true), init_z_req(false),
          init_lambda_req(false), has_variable_linearity(false), has_constraint_linearity(false),
-         has_nonlinear_vars(false), upper_bound_inf(0.0) /* Must be set from OptionsList */,
+         has_nonlinear_vars(false),
+         lower_bound_inf(0.0) /* Must be set from OptionsList */,
+         upper_bound_inf(0.0) /* Must be set from OptionsList */,
          obj_scaling(1.0), use_x_scaling(false), use_g_scaling(false) {}
 
    /*  === Utility Methods === */
@@ -211,7 +214,7 @@ struct IpoptProblemInfo {
       ConoptConstraintType type;
 
       /*  Check if bounds represent infinity (IPOPT uses large finite numbers like 1e19, 2e19) */
-      bool has_lower = IsFiniteNumber(g_l[orig_row]) && g_l[orig_row] > -upper_bound_inf;
+      bool has_lower = IsFiniteNumber(g_l[orig_row]) && g_l[orig_row] > lower_bound_inf;
       bool has_upper = IsFiniteNumber(g_u[orig_row]) && g_u[orig_row] < upper_bound_inf;
 
       if (has_lower && has_upper) {
@@ -298,10 +301,10 @@ struct IpoptProblemInfo {
       split_constraint_type[split_idx] = ConoptConstraintType::FREE;
       split_idx++;
 
-      /*  Clamp constraint bounds to upper_bound_inf if they exceed it */
+      /*  Clamp constraint bounds to [lower_bound_inf, upper_bound_inf] if they exceed it */
       for (Index i = 0; i < m; ++i) {
-         if (IsFiniteNumber(g_l[i]) && g_l[i] < -upper_bound_inf) {
-            g_l[i] = -upper_bound_inf;
+         if (IsFiniteNumber(g_l[i]) && g_l[i] < lower_bound_inf) {
+            g_l[i] = lower_bound_inf;
          }
          if (IsFiniteNumber(g_u[i]) && g_u[i] > upper_bound_inf) {
             g_u[i] = upper_bound_inf;
@@ -522,10 +525,12 @@ struct IpoptProblemInfo {
 
    /**
     * @brief Clear all data
-    * @param infinity The infinity value to use (from OptionsList nlp_upper_bound_inf) - required
-    * parameter
+    * @param lower_infinity The -infinity threshold to use (from OptionsList
+    * nlp_lower_bound_inf) - required parameter
+    * @param upper_infinity The +infinity threshold to use (from OptionsList
+    * nlp_upper_bound_inf) - required parameter
     */
-   void clear(Number infinity) {
+   void clear(Number lower_infinity, Number upper_infinity) {
       n = m = nnz_jac_g = nnz_h_lag = 0;
       m_split = nnz_jac_g_split = nnz_jac_g_split_nl = 0;
       objective_row_index = -1;
@@ -580,8 +585,9 @@ struct IpoptProblemInfo {
       nonlinear_terms_collected = false;
       n_nl_terms = 0;
 
-      /* Set infinity threshold from OptionsList */
-      upper_bound_inf = infinity;
+      /* Set infinity thresholds from OptionsList */
+      lower_bound_inf = lower_infinity;
+      upper_bound_inf = upper_infinity;
    }
 
    /**

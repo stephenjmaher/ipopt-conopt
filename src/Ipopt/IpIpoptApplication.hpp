@@ -83,10 +83,24 @@ class IpoptApplication : public ReferencedObject {
       if (IsNull(options_))
          options_ = new OptionsList();
 
-      /*  Set infinity value from OptionsList - must be set */
-      Number infinity_value;
+      /*  Set infinity thresholds from OptionsList - must be set */
+      Number lower_bound_inf_value;
       if (IsNull(options_) ||
-            !options_->GetNumericValue("nlp_upper_bound_inf", infinity_value, "")) {
+            !options_->GetNumericValue("nlp_lower_bound_inf", lower_bound_inf_value, "")) {
+         if (!IsNull(jnlst_)) {
+            jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                  "CONOPT Bridge Error: nlp_lower_bound_inf option is required but not set.\n");
+         }
+         /*  Cannot return error from constructor, but will fail when OptimizeTNLP is called */
+         /*  Leave lower_bound_inf uninitialized (0.0) - will cause error in OptimizeTNLP */
+      }
+      else {
+         problem_info_.lower_bound_inf = lower_bound_inf_value;
+      }
+
+      Number upper_bound_inf_value;
+      if (IsNull(options_) ||
+            !options_->GetNumericValue("nlp_upper_bound_inf", upper_bound_inf_value, "")) {
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
                   "CONOPT Bridge Error: nlp_upper_bound_inf option is required but not set.\n");
@@ -95,7 +109,7 @@ class IpoptApplication : public ReferencedObject {
          /*  Leave upper_bound_inf uninitialized (0.0) - will cause error in OptimizeTNLP */
       }
       else {
-         problem_info_.upper_bound_inf = infinity_value;
+         problem_info_.upper_bound_inf = upper_bound_inf_value;
       }
 
       /*  Set verbose output for debugging */
@@ -188,15 +202,17 @@ class IpoptApplication : public ReferencedObject {
     * @brief Retrieve problem information from the TNLP object
     * This method calls all the necessary TNLP methods to gather problem data
     * @param tnlp The TNLP object to retrieve information from
-    * @param infinity The infinity value to use for determining problem type
+    * @param lower_bound_inf The -infinity threshold to use for determining problem type
+    * @param upper_bound_inf The +infinity threshold to use for determining problem type
     */
-   ApplicationReturnStatus RetrieveProblemInfo(SmartPtr<TNLP> tnlp, Number infinity) {
+   ApplicationReturnStatus RetrieveProblemInfo(
+         SmartPtr<TNLP> tnlp, Number lower_bound_inf, Number upper_bound_inf) {
       if (IsNull(tnlp)) {
          return Invalid_Problem_Definition;
       }
 
-      /*  Clear any existing data, passing infinity value from options */
-      problem_info_.clear(infinity);
+      /*  Clear any existing data, passing infinity thresholds from options */
+      problem_info_.clear(lower_bound_inf, upper_bound_inf);
 
       /*  1. Get basic problem dimensions */
       TNLP::IndexStyleEnum index_style;
@@ -232,13 +248,13 @@ class IpoptApplication : public ReferencedObject {
          return Invalid_Problem_Definition;
       }
 
-      /*  Clamp variable bounds to [-upper_bound_inf, upper_bound_inf] */
+      /*  Clamp variable bounds to [lower_bound_inf, upper_bound_inf] */
       for (Index i = 0; i < problem_info_.n; ++i) {
-         if (IsFiniteNumber(problem_info_.x_l[i]) && problem_info_.x_l[i] < -infinity) {
-            problem_info_.x_l[i] = -infinity;
+         if (IsFiniteNumber(problem_info_.x_l[i]) && problem_info_.x_l[i] < lower_bound_inf) {
+            problem_info_.x_l[i] = lower_bound_inf;
          }
-         if (IsFiniteNumber(problem_info_.x_u[i]) && problem_info_.x_u[i] > infinity) {
-            problem_info_.x_u[i] = infinity;
+         if (IsFiniteNumber(problem_info_.x_u[i]) && problem_info_.x_u[i] > upper_bound_inf) {
+            problem_info_.x_u[i] = upper_bound_inf;
          }
       }
 
@@ -673,10 +689,20 @@ class IpoptApplication : public ReferencedObject {
       /*  --- Store the TNLP for later verification in ReOptimizeTNLP --- */
       tnlp_ = tnlp;
 
-      /*  --- Retrieve infinity value from options - must be set --- */
-      Number infinity_value;
+      /*  --- Retrieve infinity thresholds from options - must be set --- */
+      Number lower_bound_inf_value;
       if (IsNull(options_) ||
-            !options_->GetNumericValue("nlp_upper_bound_inf", infinity_value, "")) {
+            !options_->GetNumericValue("nlp_lower_bound_inf", lower_bound_inf_value, "")) {
+         if (!IsNull(jnlst_)) {
+            jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
+                  "CONOPT Bridge Error: nlp_lower_bound_inf option is required but not set.\n");
+         }
+         return Invalid_Option;
+      }
+
+      Number upper_bound_inf_value;
+      if (IsNull(options_) ||
+            !options_->GetNumericValue("nlp_upper_bound_inf", upper_bound_inf_value, "")) {
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
                   "CONOPT Bridge Error: nlp_upper_bound_inf option is required but not set.\n");
@@ -685,7 +711,8 @@ class IpoptApplication : public ReferencedObject {
       }
 
       /*  --- Retrieve problem information from TNLP --- */
-      ApplicationReturnStatus info_status = RetrieveProblemInfo(tnlp, infinity_value);
+      ApplicationReturnStatus info_status =
+            RetrieveProblemInfo(tnlp, lower_bound_inf_value, upper_bound_inf_value);
       if (info_status != Solve_Succeeded) {
          return info_status;
       }
