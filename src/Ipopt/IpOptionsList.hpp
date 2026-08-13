@@ -74,7 +74,9 @@ class OptionsList : public ReferencedObject {
 
    OptionsList() {
       /* adding default options */
+      numeric_options_["nlp_lower_bound_inf"] = -1e19;
       numeric_options_["nlp_upper_bound_inf"] = 1e19;
+      integer_options_["print_eval_error"] = 0;
    }
    virtual ~OptionsList() {}
 
