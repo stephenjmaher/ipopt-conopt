@@ -265,38 +265,73 @@ class IpoptApplication : public ReferencedObject {
       bool use_x_scaling_temp = false;
       bool use_g_scaling_temp = false;
 
-      /*  Call get_scaling_parameters - it may return false if not implemented, which is OK */
-      if (tnlp->get_scaling_parameters(obj_scaling_temp, use_x_scaling_temp, problem_info_.n,
-                x_scaling_temp.data(), use_g_scaling_temp, problem_info_.m,
-                g_scaling_temp.data())) {
-         /*  Scaling parameters were provided - store them */
-         problem_info_.obj_scaling = obj_scaling_temp;
-         problem_info_.use_x_scaling = use_x_scaling_temp;
-         problem_info_.use_g_scaling = use_g_scaling_temp;
+      /*  Call get_scaling_parameters - it may return false if not implemented, which is OK.
+       *  This only decides use_x_scaling/use_g_scaling/x_scaling/g_scaling here; obj_scaling
+       *  itself is resolved separately below, since it has an additional, higher-priority
+       *  source (the obj_scaling_factor option). */
+      bool have_scaling_parameters = tnlp->get_scaling_parameters(obj_scaling_temp,
+            use_x_scaling_temp, problem_info_.n, x_scaling_temp.data(), use_g_scaling_temp,
+            problem_info_.m, g_scaling_temp.data());
 
-         if (use_x_scaling_temp) {
-            problem_info_.x_scaling = x_scaling_temp;
-         }
-         if (use_g_scaling_temp) {
-            problem_info_.g_scaling = g_scaling_temp;
-         }
+      problem_info_.use_x_scaling = have_scaling_parameters && use_x_scaling_temp;
+      problem_info_.use_g_scaling = have_scaling_parameters && use_g_scaling_temp;
+      if (problem_info_.use_x_scaling) {
+         problem_info_.x_scaling = x_scaling_temp;
+      }
+      if (problem_info_.use_g_scaling) {
+         problem_info_.g_scaling = g_scaling_temp;
+      }
 
+      /*  Resolve obj_scaling. TNLP::get_scaling_parameters() is Ipopt's documented way for a
+       *  TNLP to signal both the objective's magnitude scale and its sense (a negative value
+       *  means maximize) - but it requires subclassing TNLP and overriding the method, so a
+       *  TNLP that never does so gives us no way to learn the objective's sense at all. The
+       *  obj_scaling_factor option has the exact same documented semantics in real Ipopt, and
+       *  is the far more common way users set this (an options file, or
+       *  options_->SetNumericValue) without touching their TNLP - so if the user has set it,
+       *  it takes priority over get_scaling_parameters(). Options-file values that look like a
+       *  bare integer (e.g. "obj_scaling_factor -1") land in the integer option map instead of
+       *  the numeric one (see ParseOptionsStream's type auto-detection), so check both. */
+      Number obj_scaling_option = 1.0;
+      bool have_obj_scaling_option = false;
+      if (!IsNull(options_)) {
+         have_obj_scaling_option =
+               options_->GetNumericValue("obj_scaling_factor", obj_scaling_option, "");
+         if (!have_obj_scaling_option) {
+            Index obj_scaling_option_int = 0;
+            if (options_->GetIntegerValue("obj_scaling_factor", obj_scaling_option_int, "")) {
+               obj_scaling_option = static_cast<Number>(obj_scaling_option_int);
+               have_obj_scaling_option = true;
+            }
+         }
+      }
+
+      if (have_obj_scaling_option) {
+         problem_info_.obj_scaling = obj_scaling_option;
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
-                  "CONOPT Bridge: Scaling parameters retrieved (obj_scaling=%g, use_x_scaling=%s, \n"
-                  "use_g_scaling=%s).\n",
+                  "CONOPT Bridge: Using obj_scaling_factor option (%g) for objective "
+                  "scaling%s.\n",
+                  obj_scaling_option,
+                  have_scaling_parameters ? " (overrides TNLP::get_scaling_parameters())" : "");
+         }
+      }
+      else if (have_scaling_parameters) {
+         problem_info_.obj_scaling = obj_scaling_temp;
+         if (!IsNull(jnlst_)) {
+            jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
+                  "CONOPT Bridge: Scaling parameters retrieved from TNLP (obj_scaling=%g, "
+                  "use_x_scaling=%s, use_g_scaling=%s).\n",
                   obj_scaling_temp, use_x_scaling_temp ? "true" : "false",
                   use_g_scaling_temp ? "true" : "false");
          }
       }
       else {
-         /*  Scaling parameters not provided - use defaults */
          problem_info_.obj_scaling = 1.0;
-         problem_info_.use_x_scaling = false;
-         problem_info_.use_g_scaling = false;
          if (!IsNull(jnlst_)) {
             jnlst_->Printf(Ipopt::J_DETAILED, Ipopt::J_MAIN,
-                  "CONOPT Bridge: No scaling parameters provided, using defaults.\n");
+                  "CONOPT Bridge: No obj_scaling_factor option set and no scaling parameters "
+                  "provided by TNLP; defaulting to obj_scaling=1.0 (minimize).\n");
          }
       }
 
@@ -819,7 +854,7 @@ class IpoptApplication : public ReferencedObject {
        *  COIDEF_OptDir takes the same raw objective value either way (+1 = maximize,
        *  -1 = minimize), so the sign of obj_scaling maps directly - no need to negate
        *  the objective value/gradient anywhere else in the bridge. */
-      const int conopt_opt_dir = (problem_info_.obj_scaling < 0.0) ? -1 : 1;
+      const int conopt_opt_dir = (problem_info_.obj_scaling < 0.0) ? 1 : -1;
       COI_ERROR += COIDEF_OptDir(cntvect_, conopt_opt_dir);
 
       if (!IsNull(jnlst_)) {
