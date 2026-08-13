@@ -995,34 +995,85 @@ int COI_CALLCONV Conopt_FDEvalIni(const double X[], const int ROWLIST[], int MOD
       }
    }
 
-   try {
-      if (need_function_eval && constraint_requested) {
-         EvaluateAndCacheConstraints(context, tnlp, problem_info, jnlst, X, ERRCNT);
+   /* checking whether the function and/or derivative evaluation is actually needed. This is
+    * currently restricted to the case where LISTSIZE == 1, since this is typically during the
+    * presolving stage where each row is evaluated individually.
+    */
+   if (LISTSIZE == 1) {
+      bool new_solution = true;
+      if (context->solution_stored_.first || context->solution_stored_.second) {
+         new_solution = false;
+         for (int i = 0; i < NUMVAR; ++i) {
+            if (context->solution_[i] != X[i]) {
+               new_solution = true;
+               break;
+            }
+         }
       }
 
-      if (need_derivative_eval && constraint_requested) {
-         EvaluateAndCacheJacobian(context, tnlp, problem_info, jnlst, X, ERRCNT);
+      if (new_solution) {
+         /*  A genuinely new point invalidates whatever was cached for the old one. */
+         context->solution_stored_.first = false;
+         context->solution_stored_.second = false;
       }
 
-      if (jnlst) {
-         jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
-               "CONOPT Bridge: FDEvalIni processed ROWLIST of size %d (constraints=%s).\n",
-               LISTSIZE, constraint_requested ? "yes" : "no");
+      std::copy(X, X + NUMVAR, context->solution_);
+
+      need_function_eval = need_function_eval && !context->solution_stored_.first;
+      need_derivative_eval = need_derivative_eval && !context->solution_stored_.second;
+   }
+   else {
+      /*  Multiple rows requested at once - the stored single-row reference point no longer
+       *  applies, so always (re)evaluate whatever this round's MODE asks for. */
+      context->solution_stored_.first = false;
+      context->solution_stored_.second = false;
+   }
+
+   need_function_eval = need_function_eval && constraint_requested;
+   need_derivative_eval = need_derivative_eval && constraint_requested;
+
+   if (need_function_eval || need_derivative_eval) {
+      try {
+         if (need_function_eval) {
+            if (EvaluateAndCacheConstraints(context, tnlp, problem_info, jnlst, X, ERRCNT)) {
+               if (LISTSIZE == 1) context->solution_stored_.first = true;
+            }
+         }
+
+         if (need_derivative_eval) {
+            if (EvaluateAndCacheJacobian(context, tnlp, problem_info, jnlst, X, ERRCNT)) {
+               if (LISTSIZE == 1) context->solution_stored_.second = true;
+            }
+         }
+
+         if (jnlst) {
+            jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
+                  "CONOPT Bridge: FDEvalIni processed ROWLIST of size %d (constraints=%s, "
+                  "evaluated function=%s, derivative=%s).\n",
+                  LISTSIZE, constraint_requested ? "yes" : "no", need_function_eval ? "yes" : "no",
+                  need_derivative_eval ? "yes" : "no");
+         }
+      }
+      catch (const std::exception& e) {
+         if (jnlst) {
+            jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
+                  "CONOPT Bridge: Exception in FDEvalIni: %s\n", e.what());
+         }
+         (*ERRCNT)++;
+      }
+      catch (...) {
+         if (jnlst) {
+            jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
+                  "CONOPT Bridge: Unknown exception in FDEvalIni.\n");
+         }
+         (*ERRCNT)++;
       }
    }
-   catch (const std::exception& e) {
-      if (jnlst) {
-         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
-               "CONOPT Bridge: Exception in FDEvalIni: %s\n", e.what());
-      }
-      (*ERRCNT)++;
-   }
-   catch (...) {
-      if (jnlst) {
-         jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_USER_APPLICATION,
-               "CONOPT Bridge: Unknown exception in FDEvalIni.\n");
-      }
-      (*ERRCNT)++;
+   else if (jnlst) {
+      jnlst->Printf(Ipopt::J_DETAILED, Ipopt::J_NLP,
+            "CONOPT Bridge: FDEvalIni skipped evaluation - point unchanged and already "
+            "cached for the requested MODE (ROWLIST size %d).\n",
+            LISTSIZE);
    }
 
    return 0;

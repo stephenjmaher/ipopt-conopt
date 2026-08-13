@@ -543,6 +543,9 @@ class IpoptApplication : public ReferencedObject {
       /*  --- Create status solution structure --- */
       context_.status_solution_ = new ConoptStatusSolution();
 
+      context_.solution_ = (double*)malloc(sizeof(double) * problem_info_.n);
+      context_.solution_stored_ = {false, false};
+
       /*  --- Update USRMEM pointer with context --- */
       COIDEF_UsrMem(cntvect_, &context_);
 
@@ -554,6 +557,12 @@ class IpoptApplication : public ReferencedObject {
     * Statistics are not cleaned up here as they may be accessed via Statistics().
     */
    void CleanupOldInstances() {
+      /*  Free old stored solution point */
+      if (context_.solution_) {
+         free(context_.solution_);
+         context_.solution_ = nullptr;
+      }
+
       /*  Free old fdeval_cache */
       if (context_.fdeval_cache_) {
          delete context_.fdeval_cache_;

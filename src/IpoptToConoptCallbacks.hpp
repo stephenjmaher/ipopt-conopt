@@ -9,6 +9,7 @@
 #include <cassert>
 #include <vector>
 #include <cstddef>
+#include <utility>
 
 /*  Forward declare Ipopt classes needed by the struct */
 namespace Ipopt {
@@ -147,6 +148,9 @@ typedef struct {
    ConoptStatusSolution* status_solution_; /*  Cache for status and solution data */
    Ipopt::OptionsList* options_list_;      /*  Pointer to OptionsList to retrieve optfile name */
    Ipopt::IpoptData* ip_data_;             /*  IpoptData instance for callbacks */
+   std::pair<bool, bool> solution_stored_; /*  Whether the stored solution is related to function or
+                                              derivative evaluations */
+   double* solution_;                      /*  Last point FDEvalIni was called with (length n) */
 } IpoptConoptContext;
 
 /**
