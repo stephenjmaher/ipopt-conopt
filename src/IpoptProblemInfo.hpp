@@ -6,6 +6,7 @@
 #ifndef IPOPT_PROBLEM_INFO_HPP
 #define IPOPT_PROBLEM_INFO_HPP
 
+#include <cassert>
 #include <vector>
 #include <string>
 #include <algorithm>
@@ -33,6 +34,21 @@ enum IndexStyleEnum {
  * Ipopt.
  */
 enum ConoptConstraintType { EQUAL = 0, GREATEREQ = 1, LESSEQ = 2, FREE = 3, RANGE = 4 };
+
+/**
+ * @brief One resolved CSR-row entry, precomputed once by build_jac_row_index() so that
+ * EvaluateConstraintJacobianRow's per-FDEval-call scan never has to re-derive it.
+ *
+ * Storing col and orig_k together (rather than as two separate parallel arrays) keeps a
+ * single CSR row's entries in one cache-friendly memory stream, since the hot loop needs
+ * both fields for every entry it visits.
+ */
+struct JacRowEntry {
+   Index col;    /*  Resolved split-Jacobian column (== get_split_jacobian_col(k)) */
+   Index orig_k; /*  Original (unsplit) Jacobian index for cache lookup. Never -1 for
+                     entries in a non-objective row's CSR bucket - see
+                     EvaluateConstraintJacobianRow. */
+};
 
 /**
  * @brief Struct to hold all problem information retrieved from TNLP
@@ -95,9 +111,10 @@ struct IpoptProblemInfo {
                                               nnz_jac_g_split) */
 
    /*  === Jacobian Row Index (CSR-style, for O(1) row lookup during FDEval) === */
-   std::vector<Index> jac_row_start;   /*  Row offsets into jac_row_entries (length m_split + 1) */
-   std::vector<Index> jac_row_entries; /*  Split Jacobian indices grouped by row (length
-                                          nnz_jac_g_split) */
+   std::vector<Index> jac_row_start; /*  Row offsets into jac_row_entries (length m_split + 1) */
+   std::vector<JacRowEntry> jac_row_entries; /*  CSR entries grouped by row, with the resolved
+                                                column and original-Jacobian index
+                                                precomputed (length nnz_jac_g_split) */
 
    /*  === Hessian Structure === */
    std::vector<Index> hess_iRow;    /*  Hessian row indices (length nnz_h_lag) */
@@ -384,6 +401,11 @@ struct IpoptProblemInfo {
     * entries by row. Without this, looking up the entries for a single row during FDEval would
     * require scanning the entire split Jacobian (all rows), which is O(nnz_jac_g_split) per row
     * per FDEval call instead of O(nnz of that row).
+    *
+    * Each entry also has its column and original-Jacobian index resolved here (via
+    * get_split_jacobian_col()/jacobian_split_map), once per setup, rather than re-deriving
+    * them - including the objective-marker check inside get_split_jacobian_col() - on every
+    * FDEval call.
     */
    void build_jac_row_index() {
       jac_row_start.assign(m_split + 1, 0);
@@ -398,7 +420,9 @@ struct IpoptProblemInfo {
       std::vector<Index> fill_pos(jac_row_start.begin(), jac_row_start.end() - 1);
       for (Index k = 0; k < nnz_jac_g_split; ++k) {
          Index row = jacobian_split_rows[k];
-         jac_row_entries[fill_pos[row]++] = k;
+         Index pos = fill_pos[row]++;
+         jac_row_entries[pos].col = get_split_jacobian_col(k);
+         jac_row_entries[pos].orig_k = jacobian_split_map[k];
       }
    }
 

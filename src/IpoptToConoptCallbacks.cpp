@@ -584,26 +584,28 @@ static int EvaluateConstraintJacobianRow(IpoptConoptContext* context,
       const Ipopt::Index row_start = problem_info->jac_row_start[conopt_constraint_idx];
       const Ipopt::Index row_end = problem_info->jac_row_start[conopt_constraint_idx + 1];
       for (Ipopt::Index idx = row_start; idx < row_end && result == 0; ++idx) {
-         Ipopt::Index k = problem_info->jac_row_entries[idx];
-         Ipopt::Index split_col = problem_info->get_split_jacobian_col(k);
+         const Ipopt::JacRowEntry& entry = problem_info->jac_row_entries[idx];
+         Ipopt::Index split_col = entry.col;
 
          if (split_col >= 0 && split_col < problem_info->n) {
-            /*  Get the value from the cached jacobian if it's not an objective entry */
-            if (problem_info->jacobian_split_map[k] != -1) {
-               Ipopt::Index orig_k = problem_info->jacobian_split_map[k];
-               JAC[split_col] = GetCachedJacobianValue(context, orig_k);
-            }
-            else {
-               if (jnlst) {
-                  jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
-                        "CONOPT Bridge Error: The constraint mapping is not "
-                        "consistent.\n");
-               }
-               result = 1; /*  there is an issue with the interface. */
-            }
+            /*  Trusts that this row's bucket never contains an objective-gradient marker
+             *  entry: Conopt_FDEval only reaches this function in its !is_objective branch,
+             *  and build_jac_row_index() groups CSR entries strictly by
+             *  jacobian_split_rows[k], with every objective-marker entry's row forced to
+             *  objective_row_index by split_jacobian_structure() - so a non-objective row's
+             *  bucket can never contain one. Checked only via assert() (compiles away in
+             *  release/NDEBUG builds), matching GetCachedJacobianValue's own trust model. */
+            assert(entry.orig_k != -1 &&
+                  "CONOPT Bridge: constraint mapping is not consistent (unexpected "
+                  "objective entry found while evaluating a non-objective row)");
+            JAC[split_col] = GetCachedJacobianValue(context, entry.orig_k);
          }
          else {
-            /*  Should not happen if structure is correct */
+            /*  Should not happen if structure is correct - kept as a genuine runtime check
+             *  (not an assert): split_col ultimately derives from the user's TNLP
+             *  eval_jac_g structure callback, not just this bridge's own internal
+             *  bookkeeping, and an out-of-range write into JAC here would be memory
+             *  corruption, not just a bad read. */
             if (jnlst)
                jnlst->Printf(Ipopt::J_ERROR, Ipopt::J_MAIN,
                      "CONOPT Bridge Error: Invalid column index %d from split Jacobian "
